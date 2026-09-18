@@ -43,15 +43,7 @@ TEXTS = {
     },
 
     "ADD_STUDY": {
-        "HEADER": "📚 학습 일정 세부 설정 & 생성",
-        "SUBJECT_LABEL": "과목명",
-        "SUBJECT_PLACEHOLDER": "예: 일반생물학, 토익, 수능 수학",
-        "RANGE_TYPE_LABEL": "목표 단위",
-        "TOTAL_AMOUNT_LABEL": "총 목표량 (페이지/강 수 등)",
-        "START_DATE_LABEL": "공부 시작일",
-        "EXAM_DATE_LABEL": "시험/목표 완료일",
-        "CREATE_BTN": "🚀 새로운 학습 스케줄 생성",
-        "SUCCESS": "학습 스케줄이 성공적으로 생성되었습니다!"
+        "HEADER": "📚 학습 일정 세부 설정 & 생성"
     },
 
     "ROUTINE": {
@@ -140,6 +132,21 @@ if "routine" not in st.session_state:
 
 if "selected_date" not in st.session_state:
     st.session_state.selected_date = date.today()
+
+# 정기고사 과목 관리를 위한 세션 상태 초기화 및 콜백
+if "exam_subjects" not in st.session_state:
+    st.session_state.exam_subjects = [
+        {"name": "", "has_sub": False, "textbook_range": "", "sub_range": "", "sheet_range": ""}
+    ]
+
+def add_subject():
+    st.session_state.exam_subjects.append(
+        {"name": "", "has_sub": False, "textbook_range": "", "sub_range": "", "sheet_range": ""}
+    )
+
+def remove_subject(index):
+    if len(st.session_state.exam_subjects) > 1:
+        st.session_state.exam_subjects.pop(index)
 
 # ==========================================
 # 사이드바: 데이터 관리
@@ -484,7 +491,7 @@ with right_col:
             st.write("📋 **등록된 개인 일정 목록**")
             st.dataframe(st.session_state.personal_schedule, use_container_width=True, hide_index=True)
 
-# --------------------------------------
+    # --------------------------------------
     # TAB 2: 학습 일정 추가
     # --------------------------------------
     with tab2:
@@ -503,24 +510,69 @@ with right_col:
         # [CASE 1] 정기고사
         # ----------------------------------
         if schedule_type == "정기고사":
-            with st.form("add_exam_form"):
-                st.markdown("#### 📝 정기고사 기본 설정")
-                
-                exam_name = st.text_input("시험명", placeholder="예: 1학기 중간고사, 2학기 기말고사")
-                
-                col1, col2 = st.columns(2)
-                exam_start_date = col1.date_input("시험 시작일", value=date.today())
-                exam_duration = col2.number_input("시험 기간(일)", min_value=1, max_value=14, value=3, help="시험이 며칠 동안 진행되는지 입력하세요.")
-                
-                st.divider()
+            st.markdown("#### 📝 정기고사 기본 설정")
+            
+            exam_name = st.text_input("시험명", placeholder="예: 1학기 중간고사, 2학기 기말고사")
+            
+            col1, col2 = st.columns(2)
+            exam_start_date = col1.date_input("시험 시작일", value=date.today())
+            exam_duration = col2.number_input("시험 기간(일)", min_value=1, max_value=14, value=3, help="시험이 며칠 동안 진행되는지 입력하세요.")
+            
+            st.divider()
+            
+            # 과목 추가 헤더 및 버튼
+            head_col1, head_col2 = st.columns([3, 1])
+            with head_col1:
                 st.markdown("#### 📚 과목별 세부 설정")
-                st.caption("※ 과목별 상세 범위 및 일정을 설정할 영역입니다.")
-                
-                # (추후 과목별 세부 입력 필드가 추가될 섹션)
-                
-                if st.form_submit_button("🚀 정기고사 일정 생성", use_container_width=True):
-                    exam_end_date = exam_start_date + timedelta(days=exam_duration - 1)
-                    st.success(f"'{exam_name}' 일정({exam_start_date} ~ {exam_end_date}, {exam_duration}일간)이 설정되었습니다!")
+            with head_col2:
+                st.button("➕ 과목 추가", on_click=add_subject, use_container_width=True)
+
+            # 과목별 입력 항목 반복 출력
+            for idx, sub in enumerate(st.session_state.exam_subjects):
+                with st.expander(f"📌 과목 {idx + 1} : {sub['name'] if sub['name'] else '미입력'}", expanded=True):
+                    
+                    # 과목명 및 삭제 버튼
+                    name_col, del_col = st.columns([4, 1])
+                    sub["name"] = name_col.text_input(f"과목명 #{idx+1}", value=sub["name"], placeholder="예: 국어, 수학, 영어", key=f"sub_name_{idx}")
+                    
+                    if len(st.session_state.exam_subjects) > 1:
+                        del_col.write("")
+                        del_col.write("")
+                        if del_col.button("🗑️ 삭제", key=f"del_btn_{idx}"):
+                            remove_subject(idx)
+                            st.rerun()
+
+                    st.markdown("**📖 시험 범위 설정**")
+                    
+                    # 1. 교과서 범위 (기본)
+                    sub["textbook_range"] = st.text_input(
+                        "교과서 범위", 
+                        value=sub["textbook_range"], 
+                        placeholder="예: p.10 ~ p.45", 
+                        key=f"tb_range_{idx}"
+                    )
+                    
+                    # 2. 부교재 범위 (체크박스 해제 시 흐릿하게 비활성화)
+                    has_sub = st.checkbox("부교재 있음", value=sub["has_sub"], key=f"has_sub_chk_{idx}")
+                    sub["has_sub"] = has_sub
+                    
+                    sub["sub_range"] = st.text_input(
+                        "부교재 범위", 
+                        value=sub["sub_range"], 
+                        placeholder="예: p.5 ~ p.20" if has_sub else "부교재 없음 (선택 불가)", 
+                        disabled=not has_sub,
+                        key=f"sub_range_{idx}"
+                    )
+
+                    # 3. 학습지 범위 (보류)
+                    # has_sheet = st.checkbox("학습지 있음 (보류)", value=False, disabled=True, key=f"has_sheet_chk_{idx}")
+                    # sub["sheet_range"] = st.text_input("학습지 범위", disabled=True, placeholder="추후 업데이트 예정", key=f"sheet_range_{idx}")
+
+            st.divider()
+            
+            if st.button("🚀 정기고사 전체 일정 생성", type="primary", use_container_width=True):
+                exam_end_date = exam_start_date + timedelta(days=exam_duration - 1)
+                st.success(f"[{exam_name}] {len(st.session_state.exam_subjects)}개 과목 시험 스케줄 생성이 완료되었습니다!")
 
         # ----------------------------------
         # [CASE 2] 수행평가
