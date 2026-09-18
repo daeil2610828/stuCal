@@ -17,7 +17,6 @@ st.caption("시험 날짜와 공부 범위를 설정하고, 달성도에 따라 
 def get_gsheet_client():
     """Streamlit secrets에서 인증 정보를 가져와 gspread 클라이언트를 생성합니다."""
     try:
-        # secrets.toml에 구글 서비스 계정 키 정보가 있는 경우
         credentials = Credentials.from_service_account_info(
             st.secrets["gcp_service_account"],
             scopes=[
@@ -27,7 +26,7 @@ def get_gsheet_client():
         )
         client = gspread.authorize(credentials)
         return client
-    except Exception as e:
+    except Exception:
         return None
 
 def load_schedule_from_gsheets():
@@ -65,7 +64,6 @@ def save_schedule_to_gsheets(df):
         if "날짜" in save_df.columns:
             save_df["날짜"] = save_df["날짜"].astype(str)
             
-        # 구글 시트 데이터 초기화 후 새로 쓰기
         sheet.clear()
         sheet.update([save_df.columns.values.tolist()] + save_df.values.tolist())
     except Exception as e:
@@ -77,50 +75,6 @@ if "schedule" not in st.session_state:
 
 if "current_view_date" not in st.session_state:
     st.session_state.current_view_date = date.today().replace(day=1)
-
-# --- 사이드바: 입력 및 설정 ---
-st.sidebar.header("⚙️ 시험 및 공부 설정")
-exam_name = st.sidebar.text_input("시험 / 과목 이름", "정보처리기사")
-start_date = st.sidebar.date_input("공부 시작일", date.today())
-target_date = st.sidebar.date_input("시험 날짜", date.today() + timedelta(days=14))
-total_amount = st.sidebar.number_input("총 공부 범위 (예: 페이지/강의 수)", min_value=1, value=300, step=10)
-
-def generate_initial_schedule(start, target, total):
-    """초기 일별 스케줄 생성 함수"""
-    days = (target - start).days
-    if days <= 0:
-        return None
-    
-    daily_target = math.ceil(total / days)
-    schedule_data = []
-    
-    current_page = 0
-    for i in range(days):
-        day_date = start + timedelta(days=i)
-        page_start = current_page + 1
-        page_end = min(current_page + daily_target, total)
-        
-        schedule_data.append({
-            "날짜": day_date,
-            "목표 범위": f"{page_start} ~ {page_end}",
-            "목표량": page_end - page_start + 1 if page_start <= total else 0,
-            "실제 완료량": 0,
-            "완료여부": False
-        })
-        current_page = page_end
-        
-    return pd.DataFrame(schedule_data)
-
-if st.sidebar.button("🗓️ 새로운 스케줄 생성"):
-    if target_date <= start_date:
-        st.sidebar.error("시험 날짜는 시작일 이후여야 합니다!")
-    else:
-        new_df = generate_initial_schedule(start_date, target_date, total_amount)
-        if new_df is not None:
-            st.session_state.schedule = new_df
-            save_schedule_to_gsheets(new_df)
-            st.sidebar.success("새 스케줄이 생성되었습니다!")
-            st.rerun()
 
 # --- 메인 레이아웃 (좌: 달력 / 우: 탭뷰) ---
 left_col, right_col = st.columns([1, 1], gap="large")
@@ -178,12 +132,16 @@ with left_col:
                 "allDay": True
             })
 
+    # Calendar 옵션 (높이 및 렌더링 끊김 방지 설정 적용)
     calendar_options = {
         "headerToolbar": False,
         "initialDate": curr_dt.strftime("%Y-%m-%d"),
         "initialView": "dayGridMonth",
         "selectable": True,
-        "editable": False
+        "editable": False,
+        "height": "auto",
+        "contentHeight": "auto",
+        "expandRows": True
     }
     
     calendar(
@@ -198,12 +156,15 @@ with left_col:
 with right_col:
     tab1, tab2, tab3 = st.tabs(["1", "2", "3"])
     
+    # --------------------------------------
+    # TAB 1: 일별 공부 기록 및 스케줄 조정
+    # --------------------------------------
     with tab1:
         st.subheader("📋 일별 공부 기록 및 자동 스케줄 재조정")
         
         if st.session_state.schedule is not None and not st.session_state.schedule.empty:
             df = st.session_state.schedule
-            calculated_total = int(df["목표량"].sum()) if total_amount is None else total_amount
+            calculated_total = int(df["목표량"].sum())
 
             total_completed = int(df["실제 완료량"].sum())
             remaining_amount = max(0, calculated_total - total_completed)
@@ -271,12 +232,18 @@ with right_col:
                         st.success("재조정이 완료되었습니다!")
                         st.rerun()
         else:
-            st.info("👈 사이드바에서 시험 정보를 입력하고 '새로운 스케줄 생성' 버튼을 눌러주세요.")
+            st.info("오른쪽 탭 영역에 설정 메뉴가 구성되면 스케줄을 추가해 주세요.")
 
+    # --------------------------------------
+    # TAB 2: 임시 영역
+    # --------------------------------------
     with tab2:
         st.subheader("📌 2번 영역")
-        st.write("여기에 추후 필요한 기능을 구현할 수 있습니다.")
+        st.write("사이드바에 있던 설정을 이곳으로 옮기거나 추가 기능을 구성할 수 있습니다.")
 
+    # --------------------------------------
+    # TAB 3: 임시 영역
+    # --------------------------------------
     with tab3:
         st.subheader("📌 3번 영역")
         st.write("여기에 추후 필요한 기능을 구현할 수 있습니다.")
