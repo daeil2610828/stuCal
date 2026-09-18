@@ -2,10 +2,7 @@ import streamlit as st
 import pandas as pd
 import json
 from datetime import date, datetime, time, timedelta
-import math
 import calendar
-import gspread
-from google.oauth2.service_account import Credentials
 import streamlit.components.v1 as components
 
 # ==========================================
@@ -45,9 +42,6 @@ TEXTS = {
         "HEADER": "⏰ 일상 루틴 (취침 & 식사 시간)",
         "SAVE_BTN": "💾 루틴 설정 저장",
         "SAVE_SUCCESS": "일상 루틴 설정이 저장되었습니다!"
-    },
-    "MESSAGES": {
-        "GSHEET_SAVE_ERROR": "구글 시트 저장 실패: "
     }
 }
 
@@ -65,60 +59,71 @@ def create_empty_study_df():
 def create_empty_personal_df():
     return pd.DataFrame(columns=PERSONAL_COLUMNS)
 
+def create_empty_subject():
+    return {
+        "name": "",
+        "day": 1,
+        "tb_ranges": [{"start": 1, "end": 20}],
+        "has_sub": False,
+        "sub_ranges": [{"start": 1, "end": 10}],
+        "has_sheets": False,
+        "sheets": [{"name": "학습지 1", "related_page": 5}]
+    }
+
 # ==========================================
-# Google Sheets 연동
+# 브라우저 영구 데이터베이스 저장/불러오기 컴포넌트
 # ==========================================
-def get_gsheet_client():
-    try:
-        if "gcp_service_account" in st.secrets:
-            credentials = Credentials.from_service_account_info(
-                st.secrets["gcp_service_account"],
-                scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-            )
-            return gspread.authorize(credentials)
-        return None
-    except Exception:
-        return None
-
-def auto_sync_to_gsheets():
-    client = get_gsheet_client()
-    if client is None:
-        return
-        
-    try:
-        spreadsheet_url = None
-        if "connections" in st.secrets and "gsheets" in st.secrets["connections"]:
-            spreadsheet_url = st.secrets["connections"]["gsheets"].get("spreadsheet")
-        elif "gsheet_url" in st.secrets:
-            spreadsheet_url = st.secrets.get("gsheet_url")
-            
-        if not spreadsheet_url:
-            return
-
-        doc = client.open_by_url(spreadsheet_url)
-        
-        sheet_study = doc.sheet1
-        save_study_df = st.session_state.schedule.copy() if not st.session_state.schedule.empty else create_empty_study_df()
-        save_study_df = save_study_df.fillna("")
-        save_study_df["날짜"] = save_study_df["날짜"].astype(str)
-        study_values = [save_study_df.columns.tolist()] + save_study_df.astype(str).values.tolist()
-        sheet_study.clear()
-        sheet_study.update(study_values)
-
+def sync_browser_db():
+    """브라우저의 IndexedDB/LocalStorage와 Streamlit 상태를 완전히 동기화"""
+    
+    # URL을 통한 자동 복원 감지
+    query_params = st.query_params
+    if "load_db" in query_params:
         try:
-            sheet_personal = doc.worksheet("PersonalSchedule")
-        except Exception:
-            sheet_personal = doc.add_worksheet(title="PersonalSchedule", rows="1000", cols="20")
+            raw_data = query_params["load_db"]
+            deserialize_state(raw_data, mode="replace")
+            st.query_params.clear()
+            st.rerun()
+        except Exception as e:
+            st.query_params.clear()
+
+    # 현재 상태를 브라우저에 저장
+    current_json = serialize_state()
+    components.html(
+        f"""
+        <script>
+            const DB_KEY = "stucal_user_permanent_db";
+            const currentData = {json.dumps(current_json)};
             
-        save_p_df = st.session_state.personal_schedule.copy() if not st.session_state.personal_schedule.empty else create_empty_personal_df()
-        save_p_df = save_p_df.fillna("")
-        save_p_df["날짜"] = save_p_df["날짜"].astype(str)
-        personal_values = [save_p_df.columns.tolist()] + save_p_df.astype(str).values.tolist()
-        sheet_personal.clear()
-        sheet_personal.update(personal_values)
-        
-    except Exception as e:
-        st.toast(f"⚠️ 구글 시트 저장 중 오류: {e}", icon="⚠️")
+            // 1. 브라우저 저장소 확인
+            const savedData = localStorage.getItem(DB_KEY);
+            const urlParams = new URLSearchParams(window.location.search);
+            
+            // 2. 서버 상태가 비어있고 브라우저에 저장 데이터가 있다면 자동으로 세션 복원
+            if (savedData && !urlParams.has("load_db") && !window.hasRestoredData) {{
+                window.hasRestoredData = true;
+                const url = new URL(window.location.href);
+                url.searchParams.set("load_db", savedData);
+                window.location.href = url.toString();
+            }} else {{
+                // 3. 변경된 데이터를 브라우저에 즉시 영구 동기화
+                localStorage.setItem(DB_KEY, currentData);
+            }}
+        </script>
+        """,
+        height=0
+    )
+
+def clear_browser_db():
+    """브라우저 영구 데이터 초기화"""
+    components.html(
+        """
+        <script>
+            localStorage.removeItem("stucal_user_permanent_db");
+        </script>
+        """,
+        height=0
+    )
 
 # ==========================================
 # 세션 상태 초기화
@@ -163,17 +168,6 @@ if "current_year_month" not in st.session_state:
 
 if "show_reset_confirm" not in st.session_state:
     st.session_state.show_reset_confirm = False
-
-def create_empty_subject():
-    return {
-        "name": "",
-        "day": 1,
-        "tb_ranges": [{"start": 1, "end": 20}],
-        "has_sub": False,
-        "sub_ranges": [{"start": 1, "end": 10}],
-        "has_sheets": False,
-        "sheets": [{"name": "학습지 1", "related_page": 5}]
-    }
 
 if "exam_subjects" not in st.session_state or not st.session_state.exam_subjects:
     st.session_state.exam_subjects = [create_empty_subject()]
@@ -233,6 +227,7 @@ def serialize_state():
 def deserialize_state(data_json, mode="replace"):
     data = json.loads(data_json)
     
+    # 1. 학습 스케줄 복원
     s_records = data.get("schedule", [])
     if s_records:
         new_s_df = pd.DataFrame(s_records)
@@ -250,6 +245,7 @@ def deserialize_state(data_json, mode="replace"):
     else:
         st.session_state.schedule = new_s_df[STUDY_COLUMNS]
 
+    # 2. 개인 일정 복원
     p_records = data.get("personal_schedule", [])
     if p_records:
         new_p_df = pd.DataFrame(p_records)
@@ -267,12 +263,14 @@ def deserialize_state(data_json, mode="replace"):
     else:
         st.session_state.personal_schedule = new_p_df[PERSONAL_COLUMNS]
 
+    # 3. 과목 복원
     if "exam_subjects" in data:
         if mode == "merge":
             st.session_state.exam_subjects.extend(data["exam_subjects"])
         else:
             st.session_state.exam_subjects = data["exam_subjects"]
 
+    # 4. 루틴 복원
     if "routine" in data:
         r_data = data["routine"]
         st.session_state.routine["sleep"]["start"] = datetime.strptime(r_data["sleep"]["start"], "%H:%M").time()
@@ -285,6 +283,7 @@ def deserialize_state(data_json, mode="replace"):
             } for m in r_data.get("meals", [])
         ]
 
+    # 5. 학습 방식 복원
     if "study_style" in data:
         ss_data = data["study_style"]
         st.session_state.study_style["target_hours"] = float(ss_data.get("target_hours", 4.0))
@@ -308,43 +307,8 @@ def deserialize_state(data_json, mode="replace"):
                     } for k, v in sch["periods"].items()
                 }
 
-    auto_sync_to_gsheets()
-
-# ==========================================
-# 브라우저 LocalStorage 동기화 (새로고침 방지)
-# ==========================================
-# 1. URL 쿼리 파라미터를 통해 로컬저장소 백업 데이터 자동 복원
-if "restore_data" in st.query_params:
-    try:
-        data_param = st.query_params["restore_data"]
-        deserialize_state(data_param, mode="replace")
-        st.query_params.clear()
-        st.rerun()
-    except Exception:
-        pass
-
-# 2. 로컬저장소에 현재 상태 자동 백업 스크립트 실행
-current_json = serialize_state()
-components.html(
-    f"""
-    <script>
-        const key = "stucal_auto_backup";
-        const currentData = {json.dumps(current_json)};
-        
-        // 새로고침 시 로컬저장소에서 데이터 복원 시도
-        const savedData = localStorage.getItem(key);
-        if (savedData && !window.location.search.includes("restore_data")) {{
-            const url = new URL(window.location.href);
-            url.searchParams.set("restore_data", savedData);
-            window.location.href = url.toString();
-        }} else {{
-            // 현재 상태를 로컬저장소에 백업
-            localStorage.setItem(key, currentData);
-        }}
-    </script>
-    """,
-    height=0
-)
+# 브라우저 영구 DB 동기화 실행
+sync_browser_db()
 
 # ==========================================
 # 사이드바
@@ -396,11 +360,7 @@ else:
         st.session_state.schedule = create_empty_study_df()
         st.session_state.personal_schedule = create_empty_personal_df()
         st.session_state.show_reset_confirm = False
-        
-        # 로컬 저장소 백업 삭제
-        components.html("<script>localStorage.removeItem('stucal_auto_backup');</script>", height=0)
-        
-        auto_sync_to_gsheets()
+        clear_browser_db()
         st.sidebar.success(TEXTS["SIDEBAR"]["RESET_SUCCESS"])
         st.rerun()
         
@@ -511,7 +471,6 @@ with left_col:
                     st.rerun()
                 if c2.button("🗑️ 삭제", key=f"del_p_{idx}"):
                     st.session_state.personal_schedule = st.session_state.personal_schedule.drop(idx).reset_index(drop=True)
-                    auto_sync_to_gsheets()
                     st.success("삭제되었습니다.")
                     st.rerun()
 
@@ -527,7 +486,6 @@ with left_col:
                     st.rerun()
                 if c2.button("🗑️ 삭제", key=f"del_s_{idx}"):
                     st.session_state.schedule = st.session_state.schedule.drop(idx).reset_index(drop=True)
-                    auto_sync_to_gsheets()
                     st.success("삭제되었습니다.")
                     st.rerun()
 
@@ -544,7 +502,6 @@ with left_col:
                 if st.form_submit_button("💾 저장"):
                     st.session_state.personal_schedule.loc[ev["index"], ["이름", "날짜", "메모"]] = [e_name, e_date, e_memo]
                     st.session_state.editing_event = None
-                    auto_sync_to_gsheets()
                     st.rerun()
         else:
             with st.form("edit_study_form"):
@@ -555,7 +512,6 @@ with left_col:
                 if st.form_submit_button("💾 저장"):
                     st.session_state.schedule.loc[ev["index"], ["제목", "목표 범위", "목표량", "완료여부"]] = [e_title, e_range, e_amount, e_done]
                     st.session_state.editing_event = None
-                    auto_sync_to_gsheets()
                     st.rerun()
 
         if st.button("❌ 취소"):
@@ -626,7 +582,6 @@ with right_col:
                     idx_step += 1
                     
                 st.session_state.personal_schedule = pd.concat([st.session_state.personal_schedule, pd.DataFrame(new_events)], ignore_index=True)
-                auto_sync_to_gsheets()
                 st.success(f"{len(new_events)}개의 개인 일정이 등록되었습니다!")
                 st.rerun()
 
@@ -820,9 +775,7 @@ with right_col:
 
                     new_df = pd.DataFrame(new_schedules)
                     st.session_state.schedule = pd.concat([st.session_state.schedule, new_df], ignore_index=True)
-                    auto_sync_to_gsheets()
-
-                    st.success("스케줄 생성이 완료되었으며 구글 시트에 자동 저장되었습니다!")
+                    st.success("스케줄 생성이 완료되었습니다!")
                     st.rerun()
 
     # --------------------------------------
@@ -897,7 +850,6 @@ with right_col:
             st.session_state.study_style["school"]["periods"][p] = p_data
 
         if st.button("💾 학습 방식 및 시간표 저장", use_container_width=True):
-            auto_sync_to_gsheets()
             st.success("학습 방식 및 시간표 설정이 저장되었습니다!")
 
     # --------------------------------------
@@ -948,5 +900,4 @@ with right_col:
 
         st.divider()
         if st.button(TEXTS["ROUTINE"]["SAVE_BTN"], use_container_width=True):
-            auto_sync_to_gsheets()
             st.success(TEXTS["ROUTINE"]["SAVE_SUCCESS"])
