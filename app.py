@@ -133,15 +133,27 @@ if "routine" not in st.session_state:
 if "selected_date" not in st.session_state:
     st.session_state.selected_date = date.today()
 
-# 정기고사 과목 관리를 위한 세션 상태 초기화 및 콜백
+# 정기고사 과목 관리를 위한 세션 상태 초기화 (숫자 범위로 변경)
 if "exam_subjects" not in st.session_state:
     st.session_state.exam_subjects = [
-        {"name": "", "has_sub": False, "textbook_range": "", "sub_range": "", "sheet_range": ""}
+        {
+            "name": "",
+            "tb_start": 1, "tb_end": 50,
+            "has_sub": False,
+            "sub_start": 1, "sub_end": 20,
+            "sheet_range": ""
+        }
     ]
 
 def add_subject():
     st.session_state.exam_subjects.append(
-        {"name": "", "has_sub": False, "textbook_range": "", "sub_range": "", "sheet_range": ""}
+        {
+            "name": "",
+            "tb_start": 1, "tb_end": 50,
+            "has_sub": False,
+            "sub_start": 1, "sub_end": 20,
+            "sheet_range": ""
+        }
     )
 
 def remove_subject(index):
@@ -542,31 +554,42 @@ with right_col:
                             remove_subject(idx)
                             st.rerun()
 
-                    st.markdown("**📖 시험 범위 설정**")
+                    st.markdown("**📖 시험 범위 설정 (페이지)**")
                     
-                    # 1. 교과서 범위 (기본)
-                    sub["textbook_range"] = st.text_input(
-                        "교과서 범위", 
-                        value=sub["textbook_range"], 
-                        placeholder="예: p.10 ~ p.45", 
-                        key=f"tb_range_{idx}"
-                    )
-                    
-                    # 2. 부교재 범위 (체크박스 해제 시 흐릿하게 비활성화)
+                    # 1. 교과서 범위 (숫자 입력)
+                    st.caption("📘 **교과서 범위**")
+                    tb_c1, tb_c2, tb_c3 = st.columns([1, 1, 1])
+                    sub["tb_start"] = tb_c1.number_input("시작 페이지", min_value=1, value=sub["tb_start"], key=f"tb_start_{idx}")
+                    sub["tb_end"] = tb_c2.number_input("종료 페이지", min_value=1, value=sub["tb_end"], key=f"tb_end_{idx}")
+                    tb_total = max(0, sub["tb_end"] - sub["tb_start"] + 1)
+                    tb_c3.metric("교과서 분량", f"{tb_total} p")
+
+                    st.divider()
+
+                    # 2. 부교재 범위 (체크박스 및 숫자 입력)
                     has_sub = st.checkbox("부교재 있음", value=sub["has_sub"], key=f"has_sub_chk_{idx}")
                     sub["has_sub"] = has_sub
                     
-                    sub["sub_range"] = st.text_input(
-                        "부교재 범위", 
-                        value=sub["sub_range"], 
-                        placeholder="예: p.5 ~ p.20" if has_sub else "부교재 없음 (선택 불가)", 
+                    sub_c1, sub_c2, sub_c3 = st.columns([1, 1, 1])
+                    sub["sub_start"] = sub_c1.number_input(
+                        "부교재 시작 페이지", 
+                        min_value=1, 
+                        value=sub["sub_start"], 
                         disabled=not has_sub,
-                        key=f"sub_range_{idx}"
+                        key=f"sub_start_{idx}"
                     )
+                    sub["sub_end"] = sub_c2.number_input(
+                        "부교재 종료 페이지", 
+                        min_value=1, 
+                        value=sub["sub_end"], 
+                        disabled=not has_sub,
+                        key=f"sub_end_{idx}"
+                    )
+                    sub_total = max(0, sub["sub_end"] - sub["sub_start"] + 1) if has_sub else 0
+                    sub_c3.metric("부교재 분량", f"{sub_total} p" if has_sub else "-")
 
                     # 3. 학습지 범위 (보류)
                     # has_sheet = st.checkbox("학습지 있음 (보류)", value=False, disabled=True, key=f"has_sheet_chk_{idx}")
-                    # sub["sheet_range"] = st.text_input("학습지 범위", disabled=True, placeholder="추후 업데이트 예정", key=f"sheet_range_{idx}")
 
             st.divider()
             
