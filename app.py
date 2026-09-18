@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import json
 from datetime import date, datetime, time, timedelta
 import math
 import calendar
@@ -11,17 +12,23 @@ from google.oauth2.service_account import Credentials
 # ==========================================
 TEXTS = {
     "APP_TITLE": "📅 스마트 시험 D-Day & 공부 스케줄러",
-    "APP_CAPTION": "개인 일정, 학교 시간표, 일상 루틴을 완벽히 고려한 정밀 자동 학습 스케줄링 서비스",
+    "APP_CAPTION": "개인 일정, 학교 시간표, 학습지 유동 조절을 반영한 맞춤형 학습 스케줄링 서비스",
     "SIDEBAR": {
-        "TITLE": "📁 데이터 관리",
+        "TITLE": "📁 데이터 & 백업 관리",
+        "BACKUP_HEADER": "📦 전체 설정/데이터 백업",
+        "EXPORT_LABEL": "📤 전체 설정 백업 (JSON)",
         "IMPORT_HEADER": "📥 데이터 불러오기",
-        "IMPORT_LABEL": "CSV 또는 JSON 파일 업로드",
-        "IMPORT_BTN": "불러온 데이터로 스케줄 적용",
-        "IMPORT_SUCCESS": "데이터를 성공적으로 불러왔습니다!",
+        "IMPORT_LABEL": "JSON 백업 파일 선택",
+        "IMPORT_MODE": "불러오기 방식 선택",
+        "IMPORT_BTN": "데이터 적용하기",
+        "IMPORT_SUCCESS": "성공적으로 데이터를 불러왔습니다!",
         "IMPORT_ERROR": "파일을 읽는 중 오류가 발생했습니다: ",
-        "EXPORT_HEADER": "📤 데이터 내보내기",
-        "EXPORT_CSV_BTN": "📥 CSV 파일로 다운로드",
-        "NO_DATA": "내보낼 스케줄 데이터가 없습니다."
+        "RESET_HEADER": "⚠️ 일정 데이터 초기화",
+        "RESET_BTN": "🚨 모든 일정 리셋",
+        "RESET_CONFIRM_TITLE": "⚠️ 정말로 모든 일정을 리셋하시겠습니까?",
+        "RESET_CONFIRM_BTN": "네, 모든 일정을 삭제합니다",
+        "RESET_CANCEL_BTN": "취소",
+        "RESET_SUCCESS": "모든 일정 데이터가 성공적으로 리셋되었습니다!"
     },
     "CALENDAR": {
         "HEADER": "🗓️ 달력 보기",
@@ -45,7 +52,9 @@ TEXTS = {
 
 st.set_page_config(page_title=TEXTS["APP_TITLE"].replace("📅 ", ""), layout="wide")
 
-# Google Sheets 연결 (옵션)
+# ==========================================
+# Google Sheets 연동 및 자동 저장 함수
+# ==========================================
 @st.cache_resource
 def get_gsheet_client():
     try:
@@ -57,22 +66,40 @@ def get_gsheet_client():
     except Exception:
         return None
 
-def save_schedule_to_gsheets(df):
+def auto_sync_to_gsheets():
+    """개인 일정 및 학습 스케줄을 구글 시트로 자동 저장하는 함수"""
     try:
         client = get_gsheet_client()
         if client is None: return
         spreadsheet_url = st.secrets["connections"]["gsheets"]["spreadsheet"]
-        sheet = client.open_by_url(spreadsheet_url).sheet1
-        save_df = df.copy()
-        if "날짜" in save_df.columns:
-            save_df["날짜"] = save_df["날짜"].astype(str)
-        sheet.clear()
-        sheet.update([save_df.columns.values.tolist()] + save_df.values.tolist())
+        doc = client.open_by_url(spreadsheet_url)
+        
+        # 1. 학습 스케줄 저장 (sheet1)
+        sheet_study = doc.sheet1
+        save_study_df = st.session_state.schedule.copy()
+        if "날짜" in save_study_df.columns:
+            save_study_df["날짜"] = save_study_df["날짜"].astype(str)
+        sheet_study.clear()
+        if not save_study_df.empty:
+            sheet_study.update([save_study_df.columns.values.tolist()] + save_study_df.values.tolist())
+
+        # 2. 개인 일정 저장 (PersonalSchedule)
+        try:
+            sheet_personal = doc.worksheet("PersonalSchedule")
+        except Exception:
+            sheet_personal = doc.add_worksheet(title="PersonalSchedule", rows="1000", cols="20")
+            
+        save_p_df = st.session_state.personal_schedule.copy()
+        if "날짜" in save_p_df.columns:
+            save_p_df["날짜"] = save_p_df["날짜"].astype(str)
+        sheet_personal.clear()
+        if not save_p_df.empty:
+            sheet_personal.update([save_p_df.columns.values.tolist()] + save_p_df.values.tolist())
     except Exception as e:
         st.error(f"{TEXTS['MESSAGES']['GSHEET_SAVE_ERROR']}{e}")
 
 # ==========================================
-# 세션 상태 초기화 (안전 장치 강화)
+# 세션 상태 초기화
 # ==========================================
 if "schedule" not in st.session_state or st.session_state.schedule is None:
     st.session_state.schedule = pd.DataFrame(
@@ -84,7 +111,6 @@ if "personal_schedule" not in st.session_state:
         columns=["id", "날짜", "시작 시간", "종료 시간", "이름", "이동 시간", "태그", "메모"]
     )
 
-# 2. 일상 루틴 초기화
 if "routine" not in st.session_state or not isinstance(st.session_state.routine, dict):
     st.session_state.routine = {
         "sleep": {"start": time(23, 0), "end": time(7, 0)},
@@ -95,11 +121,10 @@ if "routine" not in st.session_state or not isinstance(st.session_state.routine,
         ]
     }
 
-# 3. 학습 방식 & 주간/학교 시간표 초기화
 if "study_style" not in st.session_state or not isinstance(st.session_state.study_style, dict):
     st.session_state.study_style = {
         "target_hours": 4.0,
-        "max_pages_per_day": 5,
+        "max_pages_per_day": 10,
         "weekday_start_time": {day: time(18, 0) for day in ["월", "화", "수", "목", "금", "토", "일"]},
         "school": {
             "go_time": time(8, 20),
@@ -118,66 +143,202 @@ if "current_year_month" not in st.session_state:
     today = date.today()
     st.session_state.current_year_month = (today.year, today.month)
 
-if "exam_subjects" not in st.session_state:
-    st.session_state.exam_subjects = [
-        {
-            "name": "", "day": 1,
-            "tb_start": 1, "tb_end": 30,
-            "has_sub": False, "sub_start": 1, "sub_end": 10
-        }
-    ]
+if "show_reset_confirm" not in st.session_state:
+    st.session_state.show_reset_confirm = False
+
+def create_empty_subject():
+    return {
+        "name": "",
+        "day": 1,
+        "tb_ranges": [{"start": 1, "end": 20}],
+        "has_sub": False,
+        "sub_ranges": [{"start": 1, "end": 10}],
+        "has_sheets": False,
+        "sheets": [{"name": "학습지 1", "related_page": 5}]
+    }
+
+if "exam_subjects" not in st.session_state or not st.session_state.exam_subjects:
+    st.session_state.exam_subjects = [create_empty_subject()]
 
 if "editing_event" not in st.session_state:
     st.session_state.editing_event = None
 
 def add_subject():
-    st.session_state.exam_subjects.append(
-        {
-            "name": "", "day": 1,
-            "tb_start": 1, "tb_end": 30,
-            "has_sub": False, "sub_start": 1, "sub_end": 10
-        }
-    )
+    st.session_state.exam_subjects.append(create_empty_subject())
 
 def remove_subject(index):
     if len(st.session_state.exam_subjects) > 1:
         st.session_state.exam_subjects.pop(index)
 
 # ==========================================
-# 사이드바
+# 직렬화 / 역직렬화 헬퍼 함수
+# ==========================================
+def serialize_state():
+    state_dict = {
+        "schedule": st.session_state.schedule.to_dict(orient="records"),
+        "personal_schedule": st.session_state.personal_schedule.to_dict(orient="records"),
+        "exam_subjects": st.session_state.exam_subjects,
+        "routine": {
+            "sleep": {
+                "start": st.session_state.routine["sleep"]["start"].strftime("%H:%M"),
+                "end": st.session_state.routine["sleep"]["end"].strftime("%H:%M")
+            },
+            "meals": [
+                {
+                    "name": m["name"],
+                    "start": m["start"].strftime("%H:%M"),
+                    "duration": m["duration"]
+                } for m in st.session_state.routine["meals"]
+            ]
+        },
+        "study_style": {
+            "target_hours": st.session_state.study_style["target_hours"],
+            "max_pages_per_day": st.session_state.study_style["max_pages_per_day"],
+            "weekday_start_time": {
+                k: v.strftime("%H:%M") for k, v in st.session_state.study_style["weekday_start_time"].items()
+            },
+            "school": {
+                "go_time": st.session_state.study_style["school"]["go_time"].strftime("%H:%M"),
+                "leave_time": st.session_state.study_style["school"]["leave_time"].strftime("%H:%M"),
+                "periods": {
+                    k: {
+                        "active": v["active"],
+                        "start": v["start"].strftime("%H:%M"),
+                        "end": v["end"].strftime("%H:%M")
+                    } for k, v in st.session_state.study_style["school"]["periods"].items()
+                }
+            }
+        }
+    }
+    return json.dumps(state_dict, default=str, ensure_ascii=False, indent=2)
+
+def deserialize_state(data_json, mode="replace"):
+    data = json.loads(data_json)
+    
+    new_s_df = pd.DataFrame(data.get("schedule", []))
+    if "날짜" in new_s_df.columns and not new_s_df.empty:
+        new_s_df["날짜"] = pd.to_datetime(new_s_df["날짜"]).dt.date
+        
+    if mode == "merge" and not st.session_state.schedule.empty:
+        st.session_state.schedule = pd.concat([st.session_state.schedule, new_s_df], ignore_index=True).drop_duplicates()
+    else:
+        st.session_state.schedule = new_s_df
+
+    new_p_df = pd.DataFrame(data.get("personal_schedule", []))
+    if "날짜" in new_p_df.columns and not new_p_df.empty:
+        new_p_df["날짜"] = pd.to_datetime(new_p_df["날짜"]).dt.date
+        
+    if mode == "merge" and not st.session_state.personal_schedule.empty:
+        st.session_state.personal_schedule = pd.concat([st.session_state.personal_schedule, new_p_df], ignore_index=True).drop_duplicates()
+    else:
+        st.session_state.personal_schedule = new_p_df
+
+    if "exam_subjects" in data:
+        if mode == "merge":
+            st.session_state.exam_subjects.extend(data["exam_subjects"])
+        else:
+            st.session_state.exam_subjects = data["exam_subjects"]
+
+    if "routine" in data:
+        r_data = data["routine"]
+        st.session_state.routine["sleep"]["start"] = datetime.strptime(r_data["sleep"]["start"], "%H:%M").time()
+        st.session_state.routine["sleep"]["end"] = datetime.strptime(r_data["sleep"]["end"], "%H:%M").time()
+        st.session_state.routine["meals"] = [
+            {
+                "name": m["name"],
+                "start": datetime.strptime(m["start"], "%H:%M").time(),
+                "duration": m["duration"]
+            } for m in r_data.get("meals", [])
+        ]
+
+    if "study_style" in data:
+        ss_data = data["study_style"]
+        st.session_state.study_style["target_hours"] = float(ss_data.get("target_hours", 4.0))
+        st.session_state.study_style["max_pages_per_day"] = int(ss_data.get("max_pages_per_day", 10))
+        
+        if "weekday_start_time" in ss_data:
+            st.session_state.study_style["weekday_start_time"] = {
+                k: datetime.strptime(v, "%H:%M").time() for k, v in ss_data["weekday_start_time"].items()
+            }
+            
+        if "school" in ss_data:
+            sch = ss_data["school"]
+            st.session_state.study_style["school"]["go_time"] = datetime.strptime(sch["go_time"], "%H:%M").time()
+            st.session_state.study_style["school"]["leave_time"] = datetime.strptime(sch["leave_time"], "%H:%M").time()
+            if "periods" in sch:
+                st.session_state.study_style["school"]["periods"] = {
+                    int(k): {
+                        "active": v["active"],
+                        "start": datetime.strptime(v["start"], "%H:%M").time(),
+                        "end": datetime.strptime(v["end"], "%H:%M").time()
+                    } for k, v in sch["periods"].items()
+                }
+
+    auto_sync_to_gsheets()
+
+# ==========================================
+# 사이드바 : 데이터 백업 / 불러오기 / 일정 리셋
 # ==========================================
 st.sidebar.title(TEXTS["SIDEBAR"]["TITLE"])
-st.sidebar.subheader(TEXTS["SIDEBAR"]["IMPORT_HEADER"])
-uploaded_file = st.sidebar.file_uploader(TEXTS["SIDEBAR"]["IMPORT_LABEL"], type=["csv", "json"])
 
-if uploaded_file is not None:
-    try:
-        imported_df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith(".csv") else pd.read_json(uploaded_file)
-        if "날짜" in imported_df.columns:
-            imported_df["날짜"] = pd.to_datetime(imported_df["날짜"]).dt.date
-        if st.sidebar.button(TEXTS["SIDEBAR"]["IMPORT_BTN"]):
-            st.session_state.schedule = imported_df
-            save_schedule_to_gsheets(imported_df)
-            st.sidebar.success(TEXTS["SIDEBAR"]["IMPORT_SUCCESS"])
-            st.rerun()
-    except Exception as e:
-        st.sidebar.error(f"{TEXTS['SIDEBAR']['IMPORT_ERROR']}{e}")
+st.sidebar.subheader(TEXTS["SIDEBAR"]["BACKUP_HEADER"])
+backup_json = serialize_state()
+st.sidebar.download_button(
+    label=TEXTS["SIDEBAR"]["EXPORT_LABEL"],
+    data=backup_json,
+    file_name=f"stucal_backup_{date.today()}.json",
+    mime="application/json",
+    use_container_width=True
+)
 
 st.sidebar.divider()
-st.sidebar.subheader(TEXTS["SIDEBAR"]["EXPORT_HEADER"])
-if not st.session_state.schedule.empty:
-    export_df = st.session_state.schedule.copy()
-    export_df["날짜"] = export_df["날짜"].astype(str)
-    csv_data = export_df.to_csv(index=False).encode('utf-8-sig')
-    st.sidebar.download_button(
-        label=TEXTS["SIDEBAR"]["EXPORT_CSV_BTN"],
-        data=csv_data,
-        file_name=f"study_schedule_{date.today()}.csv",
-        mime="text/csv",
-        use_container_width=True
-    )
+st.sidebar.subheader(TEXTS["SIDEBAR"]["IMPORT_HEADER"])
+import_file = st.sidebar.file_uploader(TEXTS["SIDEBAR"]["IMPORT_LABEL"], type=["json"])
+import_mode = st.sidebar.radio(
+    TEXTS["SIDEBAR"]["IMPORT_MODE"],
+    options=["대치 (덮어쓰기)", "병합 (기존 데이터에 추가)"],
+    index=0
+)
+
+if import_file is not None:
+    if st.sidebar.button(TEXTS["SIDEBAR"]["IMPORT_BTN"], use_container_width=True):
+        try:
+            mode_code = "replace" if "대치" in import_mode else "merge"
+            deserialize_state(import_file.read().decode("utf-8"), mode=mode_code)
+            st.sidebar.success(TEXTS["SIDEBAR"]["IMPORT_SUCCESS"])
+            st.rerun()
+        except Exception as e:
+            st.sidebar.error(f"{TEXTS['SIDEBAR']['IMPORT_ERROR']}{e}")
+
+st.sidebar.divider()
+
+# ⚠️ 모든 일정 리셋 (확인 과정 포함)
+st.sidebar.subheader(TEXTS["SIDEBAR"]["RESET_HEADER"])
+
+if not st.session_state.show_reset_confirm:
+    if st.sidebar.button(TEXTS["SIDEBAR"]["RESET_BTN"], use_container_width=True):
+        st.session_state.show_reset_confirm = True
+        st.rerun()
 else:
-    st.sidebar.info(TEXTS["SIDEBAR"]["NO_DATA"])
+    st.sidebar.warning(TEXTS["SIDEBAR"]["RESET_CONFIRM_TITLE"])
+    rc_col1, rc_col2 = st.sidebar.columns(2)
+    
+    if rc_col1.button(TEXTS["SIDEBAR"]["RESET_CONFIRM_BTN"], type="primary", use_container_width=True):
+        # 일정 데이터만 비우기 (설정 및 시각표 유지는 유지)
+        st.session_state.schedule = pd.DataFrame(
+            columns=["id", "날짜", "종류", "제목", "목표 범위", "목표량", "완료여부", "메모"]
+        )
+        st.session_state.personal_schedule = pd.DataFrame(
+            columns=["id", "날짜", "시작 시간", "종료 시간", "이름", "이동 시간", "태그", "메모"]
+        )
+        st.session_state.show_reset_confirm = False
+        auto_sync_to_gsheets()
+        st.sidebar.success(TEXTS["SIDEBAR"]["RESET_SUCCESS"])
+        st.rerun()
+        
+    if rc_col2.button(TEXTS["SIDEBAR"]["RESET_CANCEL_BTN"], use_container_width=True):
+        st.session_state.show_reset_confirm = False
+        st.rerun()
 
 # ==========================================
 # 메인 화면
@@ -282,6 +443,7 @@ with left_col:
                     st.rerun()
                 if c2.button("🗑️ 삭제", key=f"del_p_{idx}"):
                     st.session_state.personal_schedule = st.session_state.personal_schedule.drop(idx).reset_index(drop=True)
+                    auto_sync_to_gsheets()
                     st.success("삭제되었습니다.")
                     st.rerun()
 
@@ -297,11 +459,10 @@ with left_col:
                     st.rerun()
                 if c2.button("🗑️ 삭제", key=f"del_s_{idx}"):
                     st.session_state.schedule = st.session_state.schedule.drop(idx).reset_index(drop=True)
-                    save_schedule_to_gsheets(st.session_state.schedule)
+                    auto_sync_to_gsheets()
                     st.success("삭제되었습니다.")
                     st.rerun()
 
-    # 일정 수정 폼
     if st.session_state.editing_event:
         st.divider()
         st.markdown("### ✏️ 일정 내용 수정")
@@ -315,6 +476,7 @@ with left_col:
                 if st.form_submit_button("💾 저장"):
                     st.session_state.personal_schedule.loc[ev["index"], ["이름", "날짜", "메모"]] = [e_name, e_date, e_memo]
                     st.session_state.editing_event = None
+                    auto_sync_to_gsheets()
                     st.rerun()
         else:
             with st.form("edit_study_form"):
@@ -324,8 +486,8 @@ with left_col:
                 e_done = st.checkbox("완료 여부", value=ev["data"].get("완료여부", False))
                 if st.form_submit_button("💾 저장"):
                     st.session_state.schedule.loc[ev["index"], ["제목", "목표 범위", "목표량", "완료여부"]] = [e_title, e_range, e_amount, e_done]
-                    save_schedule_to_gsheets(st.session_state.schedule)
                     st.session_state.editing_event = None
+                    auto_sync_to_gsheets()
                     st.rerun()
 
         if st.button("❌ 취소"):
@@ -378,12 +540,9 @@ with right_col:
                 idx_step = 0
                 
                 while True:
-                    if repeat_type == "반복 없음" and idx_step >= 1:
-                        break
-                    if repeat_type == "횟수 지정 (N회)" and idx_step >= rep_count:
-                        break
-                    if repeat_type == "종료일 지정" and cur_dt > rep_end_date:
-                        break
+                    if repeat_type == "반복 없음" and idx_step >= 1: break
+                    if repeat_type == "횟수 지정 (N회)" and idx_step >= rep_count: break
+                    if repeat_type == "종료일 지정" and cur_dt > rep_end_date: break
                         
                     new_events.append({
                         "id": len(st.session_state.personal_schedule) + len(new_events) + 1,
@@ -395,11 +554,11 @@ with right_col:
                         "태그": p_tag,
                         "메모": p_memo
                     })
-                    
                     cur_dt += timedelta(days=7)
                     idx_step += 1
                     
                 st.session_state.personal_schedule = pd.concat([st.session_state.personal_schedule, pd.DataFrame(new_events)], ignore_index=True)
+                auto_sync_to_gsheets()
                 st.success(f"{len(new_events)}개의 개인 일정이 등록되었습니다!")
                 st.rerun()
 
@@ -422,36 +581,66 @@ with right_col:
             exam_repeat = st.number_input("🔁 반복 회독 수 (N회독)", min_value=1, max_value=5, value=2)
             
             st.divider()
-            
             head_col1, head_col2 = st.columns([3, 1])
-            head_col1.markdown("#### 📚 과목별 고사 일차 & 범위 설정")
+            head_col1.markdown("#### 📚 과목별 고사 일차 & 상세 범위")
             head_col2.button("➕ 과목 추가", on_click=add_subject, use_container_width=True)
 
             for idx, sub in enumerate(st.session_state.exam_subjects):
                 s_name = sub.get("name", "")
                 s_day = sub.get("day", 1)
-                s_tb_start = sub.get("tb_start", 1)
-                s_tb_end = sub.get("tb_end", 30)
-                s_has_sub = sub.get("has_sub", False)
-                s_sub_start = sub.get("sub_start", 1)
-                s_sub_end = sub.get("sub_end", 10)
 
                 with st.expander(f"📌 과목 {idx + 1} : {s_name if s_name else '과목명을 입력하세요'}", expanded=True):
                     c_name, c_day = st.columns([2, 1])
                     sub["name"] = c_name.text_input(f"과목명 #{idx+1}", value=s_name, key=f"sub_name_{idx}", placeholder="예: 국어, 수학")
                     sub["day"] = c_day.number_input(f"시험 몇일차", min_value=1, max_value=int(exam_duration), value=int(s_day), key=f"sub_day_{idx}")
                     
-                    st.caption("📘 **교과서 범위 (페이지)**")
-                    tb_c1, tb_c2 = st.columns(2)
-                    sub["tb_start"] = tb_c1.number_input("시작", min_value=1, value=int(s_tb_start), key=f"tb_s_{idx}")
-                    sub["tb_end"] = tb_c2.number_input("종료", min_value=1, value=int(s_tb_end), key=f"tb_e_{idx}")
+                    st.caption("📘 **교과서 범위 설정**")
+                    tb_ranges = sub.get("tb_ranges", [{"start": 1, "end": 20}])
+                    for r_idx, r_val in enumerate(tb_ranges):
+                        rc1, rc2, rc3 = st.columns([2, 2, 1])
+                        r_val["start"] = rc1.number_input(f"시작 p", min_value=1, value=int(r_val["start"]), key=f"tb_s_{idx}_{r_idx}")
+                        r_val["end"] = rc2.number_input(f"종료 p", min_value=1, value=int(r_val["end"]), key=f"tb_e_{idx}_{r_idx}")
+                        if len(tb_ranges) > 1 and rc3.button("🗑️", key=f"del_tb_r_{idx}_{r_idx}"):
+                            tb_ranges.pop(r_idx)
+                            st.rerun()
+                    if st.button("➕ 교과서 범위 추가", key=f"add_tb_r_{idx}"):
+                        tb_ranges.append({"start": 1, "end": 10})
+                        st.rerun()
+                    sub["tb_ranges"] = tb_ranges
 
-                    has_sub = st.checkbox("부교재 포함", value=s_has_sub, key=f"sub_chk_{idx}")
+                    st.divider()
+                    has_sub = st.checkbox("부교재 포함", value=sub.get("has_sub", False), key=f"sub_chk_{idx}")
                     sub["has_sub"] = has_sub
                     if has_sub:
-                        sub_c1, sub_c2 = st.columns(2)
-                        sub["sub_start"] = sub_c1.number_input("부교재 시작", min_value=1, value=int(s_sub_start), key=f"sub_s_{idx}")
-                        sub["sub_end"] = sub_c2.number_input("부교재 종료", min_value=1, value=int(s_sub_end), key=f"sub_e_{idx}")
+                        sub_ranges = sub.get("sub_ranges", [{"start": 1, "end": 10}])
+                        for sr_idx, sr_val in enumerate(sub_ranges):
+                            src1, src2, src3 = st.columns([2, 2, 1])
+                            sr_val["start"] = src1.number_input(f"부교재 시작 p", min_value=1, value=int(sr_val["start"]), key=f"sub_s_{idx}_{sr_idx}")
+                            sr_val["end"] = src2.number_input(f"부교재 종료 p", min_value=1, value=int(sr_val["end"]), key=f"sub_e_{idx}_{sr_idx}")
+                            if len(sub_ranges) > 1 and src3.button("🗑️", key=f"del_sub_r_{idx}_{sr_idx}"):
+                                sub_ranges.pop(sr_idx)
+                                st.rerun()
+                        if st.button("➕ 부교재 범위 추가", key=f"add_sub_r_{idx}"):
+                            sub_ranges.append({"start": 1, "end": 10})
+                            st.rerun()
+                        sub["sub_ranges"] = sub_ranges
+
+                    st.divider()
+                    has_sheets = st.checkbox("학습지 포함", value=sub.get("has_sheets", False), key=f"sheet_chk_{idx}")
+                    sub["has_sheets"] = has_sheets
+                    if has_sheets:
+                        sheets = sub.get("sheets", [{"name": "학습지 1", "related_page": 5}])
+                        for sh_idx, sh_val in enumerate(sheets):
+                            shc1, shc2, shc3 = st.columns([2, 2, 1])
+                            sh_val["name"] = shc1.text_input("학습지 이름", value=sh_val["name"], key=f"sh_n_{idx}_{sh_idx}")
+                            sh_val["related_page"] = shc2.number_input("연관 교과서 페이지", min_value=1, value=int(sh_val["related_page"]), key=f"sh_p_{idx}_{sh_idx}")
+                            if len(sheets) > 1 and shc3.button("🗑️", key=f"del_sh_{idx}_{sh_idx}"):
+                                sheets.pop(sh_idx)
+                                st.rerun()
+                        if st.button("➕ 학습지 추가", key=f"add_sh_{idx}"):
+                            sheets.append({"name": f"학습지 {len(sheets)+1}", "related_page": 5})
+                            st.rerun()
+                        sub["sheets"] = sheets
 
                     if len(st.session_state.exam_subjects) > 1 and st.button(f"🗑️ 과목 {idx+1} 삭제", key=f"del_sub_{idx}"):
                         remove_subject(idx)
@@ -459,7 +648,7 @@ with right_col:
 
             st.divider()
 
-            if st.button("🚀 타임블록 최적화 스케줄 생성", type="primary", use_container_width=True):
+            if st.button("🚀 순행적 & 학습지 유동 스케줄 생성", type="primary", use_container_width=True):
                 valid_subjects = [s for s in st.session_state.exam_subjects if s.get("name", "").strip() != ""]
                 
                 if not valid_subjects:
@@ -490,12 +679,12 @@ with right_col:
                                 new_schedules.append({
                                     "id": len(new_schedules) + len(day_subs) + 1,
                                     "날짜": prev_exam_date,
-                                    "종류": "🔥 시험 당일 오후 대비",
-                                    "제목": f"[{s.get('name')}] {day_num}일차 시험 직전 점검",
-                                    "목표 범위": f"교과서 p.{s.get('tb_start')}~{s.get('tb_end')}",
-                                    "목표량": "오후/저녁 집중 복습",
+                                    "종류": "🔥 총정리",
+                                    "제목": f"[{s.get('name')}] 총정리 공부",
+                                    "목표 범위": "전체 범위 핵심 복습",
+                                    "목표량": "오후/저녁 집중 총정리",
                                     "완료여부": False,
-                                    "메모": f"{day_num-1}일차 시험 종료 후 {day_num}일차 과목 대비 공부"
+                                    "메모": f"{day_num-1}일차 시험 종료 후 {day_num}일차 과목 총정리"
                                 })
 
                     day1_subs = [s for s in valid_subjects if s.get("day") == 1]
@@ -503,63 +692,79 @@ with right_col:
                         new_schedules.append({
                             "id": len(new_schedules) + 1,
                             "날짜": exam_start_date - timedelta(days=1),
-                            "종류": "🔥 직전대비",
-                            "제목": f"[{s.get('name')}] 1일차 시험 전날 총복습",
-                            "목표 범위": f"교과서 p.{s.get('tb_start')}~{s.get('tb_end')}",
+                            "종류": "🔥 총정리",
+                            "제목": f"[{s.get('name')}] 총정리 공부",
+                            "목표 범위": "전체 범위 핵심 복습",
                             "목표량": "1일차 시험 전날 총정리",
                             "완료여부": False,
-                            "메모": "1일차 시험 전날 집중 복습"
+                            "메모": "1일차 시험 전날 집중 총정리"
                         })
 
-                    max_pages = max(1, int(st.session_state.study_style.get("max_pages_per_day", 5)))
-                    study_chunks = []
+                    max_daily_pages = max(1, int(st.session_state.study_style.get("max_pages_per_day", 10)))
+                    chunk_queue = []
                     
-                    for r in range(int(exam_repeat) - 1, 0, -1):
+                    for r in range(1, int(exam_repeat)):
                         for s in valid_subjects:
-                            tb_s, tb_e = s.get("tb_start", 1), s.get("tb_end", 1)
-                            total_p = tb_e - tb_s + 1
-                            num_chunks = math.ceil(total_p / max_pages)
+                            s_name = s.get("name")
+                            tb_pages = []
+                            for tr in s.get("tb_ranges", []):
+                                tb_pages.extend(list(range(tr["start"], tr["end"] + 1)))
 
-                            for c in range(num_chunks):
-                                chunk_start = tb_s + (c * max_pages)
-                                chunk_end = min(tb_e, chunk_start + max_pages - 1)
-                                study_chunks.append({
-                                    "name": s.get("name"),
-                                    "range": f"p.{chunk_start}~{chunk_end}",
-                                    "pages": chunk_end - chunk_start + 1,
-                                    "repeat": r + 1
+                            sheet_map = {}
+                            if s.get("has_sheets"):
+                                for sh in s.get("sheets", []):
+                                    sheet_map.setdefault(sh["related_page"], []).append(sh["name"])
+
+                            p_idx = 0
+                            while p_idx < len(tb_pages):
+                                cur_p = tb_pages[p_idx]
+                                sheets_today = sheet_map.get(cur_p, [])
+                                actual_max_p = max(1, max_daily_pages - (len(sheets_today) * 2)) if sheets_today else max_daily_pages
+                                end_p_idx = min(len(tb_pages) - 1, p_idx + actual_max_p - 1)
+                                page_range_str = f"p.{tb_pages[p_idx]}~{tb_pages[end_p_idx]}"
+                                
+                                if sheets_today:
+                                    page_range_str += f" + 학습지({', '.join(sheets_today)})"
+
+                                chunk_queue.append({
+                                    "name": s_name,
+                                    "range": page_range_str,
+                                    "pages": (end_p_idx - p_idx + 1) + (len(sheets_today) * 2),
+                                    "repeat": r
                                 })
+                                p_idx = end_p_idx + 1
 
-                    curr_date = exam_start_date - timedelta(days=2)
-                    for chunk in study_chunks:
+                    total_days_needed = len(chunk_queue)
+                    start_study_date = exam_start_date - timedelta(days=total_days_needed + 2)
+                    
+                    for idx, chunk in enumerate(chunk_queue):
+                        curr_date = start_study_date + timedelta(days=idx)
                         new_schedules.append({
                             "id": len(new_schedules) + 1,
                             "날짜": curr_date,
                             "종류": f"📖 {chunk['repeat']}회독 학습",
-                            "제목": f"[{chunk['name']}] 단원 분할 공부",
+                            "제목": f"[{chunk['name']}] 순행적 단원 공부",
                             "목표 범위": chunk["range"],
-                            "목표량": f"{chunk['pages']} 페이지 학습",
+                            "목표량": f"{chunk['pages']}p 분량 (학습지 반영)",
                             "완료여부": False,
-                            "메모": f"{chunk['repeat']}회독 계획에 따라 자동 생성됨"
+                            "메모": f"{chunk['repeat']}회독 순행 학습"
                         })
-                        curr_date -= timedelta(days=1)
 
                     new_df = pd.DataFrame(new_schedules)
                     st.session_state.schedule = pd.concat([st.session_state.schedule, new_df], ignore_index=True)
-                    save_schedule_to_gsheets(st.session_state.schedule)
+                    auto_sync_to_gsheets()
 
-                    st.success("스케줄 생성이 완료되었습니다!")
+                    st.success("스케줄 생성이 완료되었으며 구글 시트에 자동 저장되었습니다!")
                     st.rerun()
 
     # --------------------------------------
-    # TAB 3: 학습 방식 & 시간표 (오류 수정 완료)
+    # TAB 3: 학습 방식 & 시간표
     # --------------------------------------
     with tab3:
         st.subheader("⚙️ 학습 방식 & 시간표 설정")
         
         st.markdown("#### 🎯 목표 공부 분량")
         
-        # 안전한 float 캐스팅 적용으로 TypeError 해결
         try:
             curr_target_h = float(st.session_state.study_style.get("target_hours", 4.0))
         except (ValueError, TypeError):
@@ -574,9 +779,9 @@ with right_col:
         )
         
         try:
-            curr_max_p = int(st.session_state.study_style.get("max_pages_per_day", 5))
+            curr_max_p = int(st.session_state.study_style.get("max_pages_per_day", 10))
         except (ValueError, TypeError):
-            curr_max_p = 5
+            curr_max_p = 10
 
         st.session_state.study_style["max_pages_per_day"] = st.number_input(
             "하루 과목당 목표 학습 페이지 수", 
@@ -624,10 +829,11 @@ with right_col:
             st.session_state.study_style["school"]["periods"][p] = p_data
 
         if st.button("💾 학습 방식 및 시간표 저장", use_container_width=True):
+            auto_sync_to_gsheets()
             st.success("학습 방식 및 시간표 설정이 저장되었습니다!")
 
     # --------------------------------------
-    # TAB 4: 일상 루틴 설정 (정상 출력 보장)
+    # TAB 4: 일상 루틴 설정
     # --------------------------------------
     with tab4:
         st.subheader("⏰ 일상 루틴 설정")
@@ -674,4 +880,5 @@ with right_col:
 
         st.divider()
         if st.button(TEXTS["ROUTINE"]["SAVE_BTN"], use_container_width=True):
+            auto_sync_to_gsheets()
             st.success(TEXTS["ROUTINE"]["SAVE_SUCCESS"])
