@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 from datetime import date, datetime, timedelta
 import math
@@ -63,15 +64,6 @@ def save_schedule_to_gsheets(df):
     except Exception as e:
         st.error(f"구글 시트 저장 실패: {e}")
 
-# --- URL 쿼리 파라미터를 통한 클릭 날짜 감지 ---
-query_params = st.query_params
-if "clicked_date" in query_params:
-    try:
-        c_date = datetime.strptime(query_params["clicked_date"], "%Y-%m-%d").date()
-        st.session_state.selected_date = c_date
-    except Exception:
-        pass
-
 # 세션 상태 초기화
 if "schedule" not in st.session_state:
     st.session_state.schedule = load_schedule_from_gsheets()
@@ -125,83 +117,6 @@ selected_accent = color_map[accent_color]
 
 theme_mode = st.sidebar.radio("모드 설정", ["라이트 모드", "다크 모드"], index=0)
 
-# --- 완전한 엑셀 격자(Gap 0px) CSS ---
-st.markdown(f"""
-    <style>
-        .excel-table {{
-            width: 100%;
-            border-collapse: collapse !important;
-            table-layout: fixed;
-            border: 1px solid #dadce0;
-        }}
-        
-        .excel-table th {{
-            background-color: #f1f3f4;
-            border: 1px solid #dadce0;
-            padding: 6px 0;
-            text-align: center;
-            font-size: 12px;
-            font-weight: bold;
-            color: #5f6368;
-        }}
-        
-        .excel-table td {{
-            border: 1px solid #dadce0;
-            height: 85px;
-            vertical-align: top;
-            padding: 0;
-            background-color: #ffffff;
-            position: relative;
-        }}
-        
-        .excel-cell-link {{
-            display: block;
-            width: 100%;
-            height: 100%;
-            padding: 6px;
-            text-decoration: none !important;
-            color: #3c4043;
-            box-sizing: border-box;
-        }}
-        
-        .excel-cell-link:hover {{
-            background-color: #f8f9fa;
-        }}
-
-        .excel-cell-selected {{
-            background-color: #e8f0fe !important;
-            box-shadow: inset 0 0 0 2px {selected_accent};
-        }}
-        
-        .excel-cell-selected .day-num {{
-            color: {selected_accent};
-            font-weight: bold;
-        }}
-
-        .excel-cell-other {{
-            background-color: #fcfcfc;
-        }}
-        
-        .excel-cell-other .day-num {{
-            color: #ccc;
-        }}
-
-        .day-num {{
-            font-size: 12px;
-            text-align: left;
-            margin-bottom: 4px;
-            display: block;
-        }}
-
-        .cell-info {{
-            font-size: 11px;
-            line-height: 1.2;
-            word-break: break-all;
-            color: #1a73e8;
-        }}
-    </style>
-""", unsafe_allow_html=True)
-
 st.title("📅 스마트 시험 D-Day & 공부 스케줄러")
 st.caption("시험 날짜와 공부 범위를 설정하고, 달성도에 따라 스케줄을 자동으로 재조정하세요.")
 
@@ -209,7 +124,7 @@ st.caption("시험 날짜와 공부 범위를 설정하고, 달성도에 따라 
 left_col, right_col = st.columns([1.1, 0.9], gap="large")
 
 # ==========================================
-# [왼쪽 칼럼] Gap 없는 Seamless 엑셀 달력
+# [왼쪽 칼럼] 새로고침 없는 HTML Component 엑셀 달력
 # ==========================================
 with left_col:
     st.subheader("🗓️ 달력")
@@ -243,7 +158,7 @@ with left_col:
             st.session_state.selected_date = next_month.replace(day=min(selected_dt.day, 28))
             st.rerun()
 
-    # --- HTML 기반 Seamless 엑셀 표 구현 ---
+    # --- HTML / JS 커스텀 컴포넌트 생성 ---
     year = selected_dt.year
     month = selected_dt.month
     
@@ -255,55 +170,149 @@ with left_col:
     cal = calendar.Calendar(firstweekday=6)
     month_days = cal.monthdatescalendar(year, month)
 
-    html_code = '<table class="excel-table">'
-    
-    # 요일 헤더
-    html_code += '<thead><tr>'
-    for day_name in ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]:
-        html_code += f'<th>{day_name}</th>'
-    html_code += '</tr></thead><tbody>'
+    # HTML/CSS 및 Streamlit postMessage 이벤트 연동 스크립트
+    html_code = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+    <style>
+        * {{
+            box-sizing: border-box;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }}
+        body {{
+            margin: 0;
+            padding: 0;
+            background-color: transparent;
+        }}
+        .excel-table {{
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+            border: 1px solid #dadce0;
+        }}
+        .excel-table th {{
+            background-color: #f1f3f4;
+            border: 1px solid #dadce0;
+            padding: 6px 0;
+            text-align: center;
+            font-size: 12px;
+            font-weight: bold;
+            color: #5f6368;
+        }}
+        .excel-table td {{
+            border: 1px solid #dadce0;
+            height: 80px;
+            vertical-align: top;
+            padding: 6px;
+            background-color: #ffffff;
+            cursor: pointer;
+            transition: background-color 0.1s ease;
+        }}
+        .excel-table td:hover {{
+            background-color: #f8f9fa;
+        }}
+        .excel-table td.selected {{
+            background-color: #e8f0fe !important;
+            box-shadow: inset 0 0 0 2px {selected_accent};
+        }}
+        .excel-table td.selected .day-num {{
+            color: {selected_accent};
+            font-weight: bold;
+        }}
+        .excel-table td.other-month {{
+            background-color: #fcfcfc;
+            cursor: default;
+        }}
+        .excel-table td.other-month .day-num {{
+            color: #ccc;
+        }}
+        .day-num {{
+            font-size: 12px;
+            text-align: left;
+            margin-bottom: 4px;
+            display: block;
+            color: #3c4043;
+        }}
+        .cell-info {{
+            font-size: 11px;
+            line-height: 1.2;
+            word-break: break-all;
+            color: #1a73e8;
+        }}
+    </style>
+    </head>
+    <body>
+    <table class="excel-table">
+        <thead>
+            <tr>
+                <th>Sun</th><th>Mon</th><th>Tue</th><th>Wed</th><th>Thu</th><th>Fri</th><th>Sat</th>
+            </tr>
+        </thead>
+        <tbody>
+    """
 
-    # 일자 그리드 생성
     for week in month_days:
-        html_code += '<tr>'
+        html_code += "<tr>"
         for day_date in week:
             is_current_month = (day_date.month == month)
             is_selected = (day_date == selected_dt)
+            date_str = day_date.strftime("%Y-%m-%d")
             
             data = schedule_dict.get(day_date, None)
             
             td_classes = []
             if not is_current_month:
-                td_classes.append("excel-cell-other")
+                td_classes.append("other-month")
             if is_selected and is_current_month:
-                td_classes.append("excel-cell-selected")
+                td_classes.append("selected")
                 
             td_class_str = f'class="{" ".join(td_classes)}"' if td_classes else ''
             
-            date_str = day_date.strftime("%Y-%m-%d")
-            
-            # 셀 내용 구성
             content_html = ""
             if is_current_month and data is not None:
                 is_done = data.get("완료여부", False)
                 icon = "✅" if is_done else "📖"
                 content_html = f'<div class="cell-info">{icon} {data["목표 범위"]}</div>'
                 
-            # 클릭 시 URL 파라미터 전달 링크 구성
-            link_target = f"?clicked_date={date_str}" if is_current_month else "#"
+            onclick_attr = f'onclick="onCellClick(\'{date_str}\')"' if is_current_month else ''
             
-            html_code += f'<td {td_class_str}>'
-            html_code += f'<a href="{link_target}" target="_self" class="excel-cell-link">'
+            html_code += f'<td {td_class_str} {onclick_attr}>'
             html_code += f'<span class="day-num">{day_date.day}</span>'
             html_code += content_html
-            html_code += '</a>'
-            html_code += 'td>'
+            html_code += '</td>'
             
-        html_code += '<tr>'
+        html_code += "</tr>"
         
-    html_code += '</tbody></table>'
-    
-    st.markdown(html_code, unsafe_allow_html=True)
+    html_code += f"""
+        </tbody>
+    </table>
+
+    <script>
+    function onCellClick(dateStr) {{
+        // 새로고침 없이 Streamlit 세션 상태로 데이터 전달
+        window.parent.postMessage({{
+            type: 'streamlit:setComponentValue',
+            value: dateStr
+        }}, '*');
+    }}
+    </script>
+    </body>
+    </html>
+    """
+
+    # 컴포넌트 렌더링 및 클릭 이벤트 수신 (높이 자동 맞춤)
+    clicked_date_val = components.html(html_code, height=520)
+
+    # 클릭한 날짜가 수신되면 세션 상태 업데이트 후 해당 날짜로 연동
+    if clicked_date_val:
+        try:
+            new_clicked_date = datetime.strptime(clicked_date_val, "%Y-%m-%d").date()
+            if new_clicked_date != st.session_state.selected_date:
+                st.session_state.selected_date = new_clicked_date
+                st.rerun()
+        except Exception:
+            pass
 
 # ==========================================
 # [오른쪽 칼럼] 탭뷰 (1, 2, 3)
