@@ -2,7 +2,8 @@ import streamlit as st
 import pandas as pd
 from datetime import date, datetime, timedelta
 import math
-from streamlit_gsheets import GSheetsConnection
+import gspread
+from google.oauth2.service_account import Credentials
 from streamlit_calendar import calendar
 
 # 페이지 기본 설정
@@ -11,16 +12,39 @@ st.set_page_config(page_title="스마트 시험 D-Day 플래너", layout="wide")
 st.title("📅 스마트 시험 D-Day & 공부 스케줄러")
 st.caption("시험 날짜와 공부 범위를 설정하고, 달성도에 따라 스케줄을 자동으로 재조정하세요. (Google Sheets 연동)")
 
-# --- 구글 시트 클라우드 연결 ---
-conn = st.connection("gsheets", type=GSheetsConnection)
+# --- Google Sheets 클라우드 연결 (gspread 활용) ---
+@st.cache_resource
+def get_gsheet_client():
+    """Streamlit secrets에서 인증 정보를 가져와 gspread 클라이언트를 생성합니다."""
+    try:
+        # secrets.toml에 구글 서비스 계정 키 정보가 있는 경우
+        credentials = Credentials.from_service_account_info(
+            st.secrets["gcp_service_account"],
+            scopes=[
+                "https://www.googleapis.com/auth/spreadsheets",
+                "https://www.googleapis.com/auth/drive"
+            ]
+        )
+        client = gspread.authorize(credentials)
+        return client
+    except Exception as e:
+        return None
 
 def load_schedule_from_gsheets():
     """구글 시트에서 최신 스케줄 데이터를 불러옵니다."""
     try:
-        df = conn.read(worksheet="Sheet1", ttl=0)
-        if df.empty:
+        client = get_gsheet_client()
+        if client is None:
             return None
-        # 날짜 컬럼 타입 변환
+        
+        spreadsheet_url = st.secrets["connections"]["gsheets"]["spreadsheet"]
+        sheet = client.open_by_url(spreadsheet_url).sheet1
+        records = sheet.get_all_records()
+        
+        if not records:
+            return None
+            
+        df = pd.DataFrame(records)
         if "날짜" in df.columns:
             df["날짜"] = pd.to_datetime(df["날짜"]).dt.date
         return df
@@ -28,11 +52,24 @@ def load_schedule_from_gsheets():
         return None
 
 def save_schedule_to_gsheets(df):
-    """스케줄 데이터를 구글 시트로 업데이트합니다 (로컬 파일 생성 X)."""
-    save_df = df.copy()
-    if "날짜" in save_df.columns:
-        save_df["날짜"] = save_df["날짜"].astype(str)
-    conn.update(worksheet="Sheet1", data=save_df)
+    """스케줄 데이터를 구글 시트로 업데이트합니다."""
+    try:
+        client = get_gsheet_client()
+        if client is None:
+            return
+            
+        spreadsheet_url = st.secrets["connections"]["gsheets"]["spreadsheet"]
+        sheet = client.open_by_url(spreadsheet_url).sheet1
+        
+        save_df = df.copy()
+        if "날짜" in save_df.columns:
+            save_df["날짜"] = save_df["날짜"].astype(str)
+            
+        # 구글 시트 데이터 초기화 후 새로 쓰기
+        sheet.clear()
+        sheet.update([save_df.columns.values.tolist()] + save_df.values.tolist())
+    except Exception as e:
+        st.error(f"구글 시트 저장 실패: {e}")
 
 # 세션 상태 초기화
 if "schedule" not in st.session_state:
@@ -82,7 +119,7 @@ if st.sidebar.button("🗓️ 새로운 스케줄 생성"):
         if new_df is not None:
             st.session_state.schedule = new_df
             save_schedule_to_gsheets(new_df)
-            st.sidebar.success("새 스케줄이 구글 시트에 저장되었습니다!")
+            st.sidebar.success("새 스케줄이 생성되었습니다!")
             st.rerun()
 
 # --- 메인 레이아웃 (좌: 달력 / 우: 탭뷰) ---
@@ -94,26 +131,21 @@ left_col, right_col = st.columns([1, 1], gap="large")
 with left_col:
     st.subheader("🗓️ 달력")
     
-    # 상단 연/월 이동 컨트롤
     nav_col1, nav_col2, nav_col3, nav_col4 = st.columns([1, 3, 2, 1])
-    
     curr_dt = st.session_state.current_view_date
     
     with nav_col1:
         if st.button("◀", key="prev_month"):
-            # 이전 달로 이동
             first_of_curr = curr_dt.replace(day=1)
             prev_month_last = first_of_curr - timedelta(days=1)
             st.session_state.current_view_date = prev_month_last.replace(day=1)
             st.rerun()
             
     with nav_col2:
-        # 2026-09 ▾ 형태의 버튼 (클릭 시 원하는 연월로 이동)
         formatted_date_str = curr_dt.strftime("%Y-%m ▾")
         st.button(f"📅 {formatted_date_str}", key="date_picker_btn", use_container_width=True)
 
     with nav_col3:
-        # 연월 직접 지정 팝오버/스프레드
         selected_ym = st.date_input(
             "날짜 선택",
             value=curr_dt,
@@ -126,12 +158,11 @@ with left_col:
 
     with nav_col4:
         if st.button("▶", key="next_month"):
-            # 다음 달로 이동
             next_month = (curr_dt.replace(day=28) + timedelta(days=5)).replace(day=1)
             st.session_state.current_view_date = next_month
             st.rerun()
 
-    # 달력 이벤트 생성 (스케줄 데이터 변환)
+    # 달력 이벤트 생성
     calendar_events = []
     if st.session_state.schedule is not None and not st.session_state.schedule.empty:
         for _, row in st.session_state.schedule.iterrows():
@@ -147,9 +178,8 @@ with left_col:
                 "allDay": True
             })
 
-    # Calendar 옵션 및 렌더링
     calendar_options = {
-        "headerToolbar": False,  # 상단 커스텀 네비게이션 사용
+        "headerToolbar": False,
         "initialDate": curr_dt.strftime("%Y-%m-%d"),
         "initialView": "dayGridMonth",
         "selectable": True,
@@ -168,9 +198,6 @@ with left_col:
 with right_col:
     tab1, tab2, tab3 = st.tabs(["1", "2", "3"])
     
-    # --------------------------------------
-    # TAB 1: 일별 공부 기록 및 스케줄 조정
-    # --------------------------------------
     with tab1:
         st.subheader("📋 일별 공부 기록 및 자동 스케줄 재조정")
         
@@ -178,7 +205,6 @@ with right_col:
             df = st.session_state.schedule
             calculated_total = int(df["목표량"].sum()) if total_amount is None else total_amount
 
-            # 요약 지표 (KPI)
             total_completed = int(df["실제 완료량"].sum())
             remaining_amount = max(0, calculated_total - total_completed)
             progress_pct = min(100.0, (total_completed / calculated_total) * 100) if calculated_total > 0 else 0
@@ -191,7 +217,6 @@ with right_col:
             st.progress(progress_pct / 100)
             st.divider()
 
-            # 데이터 에디터
             edited_df = st.data_editor(
                 df,
                 column_config={
@@ -248,16 +273,10 @@ with right_col:
         else:
             st.info("👈 사이드바에서 시험 정보를 입력하고 '새로운 스케줄 생성' 버튼을 눌러주세요.")
 
-    # --------------------------------------
-    # TAB 2: 임시 영역
-    # --------------------------------------
     with tab2:
         st.subheader("📌 2번 영역")
-        st.write("여기에 추후 필요한 기능(예: 통계 차트, 상세 노트 등)을 구현할 수 있습니다.")
+        st.write("여기에 추후 필요한 기능을 구현할 수 있습니다.")
 
-    # --------------------------------------
-    # TAB 3: 임시 영역
-    # --------------------------------------
     with tab3:
         st.subheader("📌 3번 영역")
-        st.write("여기에 추후 필요한 기능(예: 설정, 모의고사 기록 등)을 구현할 수 있습니다.")
+        st.write("여기에 추후 필요한 기능을 구현할 수 있습니다.")
