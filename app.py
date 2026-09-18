@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 import math
 import calendar
 import gspread
@@ -31,7 +31,7 @@ TEXTS = {
         "DATE_PICKER_LABEL": "선택 날짜",
         "WEEKDAYS": ["일", "월", "화", "수", "목", "금", "토"]
     },
-    
+
     "TABS": {
         "TAB1_NAME": "1. 개인 일정 추가",
         "TAB2_NAME": "2. 학습 일정 추가",
@@ -131,7 +131,9 @@ if "schedule" not in st.session_state:
     st.session_state.schedule = load_schedule_from_gsheets()
 
 if "personal_schedule" not in st.session_state:
-    st.session_state.personal_schedule = pd.DataFrame(columns=["날짜", "시간", "이름", "이동 시간", "태그", "메모"])
+    st.session_state.personal_schedule = pd.DataFrame(
+        columns=["날짜", "시작 시간", "종료 시간", "이름", "이동 시간", "태그", "메모"]
+    )
 
 if "routine" not in st.session_state:
     st.session_state.routine = {"취침": 7, "식사": 3, "휴식": 2}
@@ -203,7 +205,7 @@ st.caption(TEXTS["APP_CAPTION"])
 left_col, right_col = st.columns([1.1, 0.9], gap="large")
 
 # ------------------------------------------
-# [왼쪽 칼럼] 기본 달력 표 (팝업 버그 수정 및 종류 표기)
+# [왼쪽 칼럼] 기본 달력 표 (시작/종료 시간 및 종류 표기)
 # ------------------------------------------
 with left_col:
     st.subheader(TEXTS["CALENDAR"]["HEADER"])
@@ -396,11 +398,16 @@ with left_col:
                 # 2. 개인 일정 팝업
                 for p_ev in personal_events:
                     p_name = p_ev["이름"]
-                    p_time = p_ev["시간"]
+                    p_start_time = p_ev.get("시작 시간", p_ev.get("시간", ""))
+                    p_end_time = p_ev.get("종료 시간", "")
                     p_travel = p_ev["이동 시간"]
                     p_tag = p_ev["태그"]
                     p_memo = p_ev["메모"]
                     
+                    time_html = f'<div class="popup-item"><b>시작 시간:</b> {p_start_time}</div>'
+                    if p_end_time:
+                        time_html += f'<div class="popup-item"><b>종료 시간:</b> {p_end_time}</div>'
+                        
                     tag_html = f'<div class="popup-item"><b>태그:</b> {p_tag}</div>' if p_tag else ''
                     memo_html = f'<div class="popup-item"><b>메모:</b> {p_memo}</div>' if p_memo else ''
                     
@@ -410,7 +417,7 @@ with left_col:
                         f'<div class="popup-box">'
                         f'<div class="popup-header">🛑 {p_name}</div>'
                         f'<div class="popup-item"><b>종류:</b> 개인 일정</div>'
-                        f'<div class="popup-item"><b>시간:</b> {p_time}</div>'
+                        f'{time_html}'
                         f'<div class="popup-item"><b>이동 시간:</b> {p_travel}</div>'
                         f'{tag_html}'
                         f'{memo_html}'
@@ -440,10 +447,11 @@ with right_col:
         st.subheader(TEXTS["ADD_PERSONAL"]["HEADER"])
         with st.form("add_personal_form"):
             p_title = st.text_input("이름", placeholder="예: 병원 방문, 미팅, 운동")
+            p_date = st.date_input("날짜", value=date.today())
             
             p_col1, p_col2 = st.columns(2)
-            p_date = p_col1.date_input("날짜", value=date.today())
-            p_time = p_col2.time_input("시간", value=datetime.now().time())
+            p_start_time = p_col1.time_input("시작 시간", value=time(9, 0))
+            p_end_time = p_col2.time_input("종료 시간", value=time(10, 0))
             
             travel_col, tag_col = st.columns(2)
             travel_time = travel_col.selectbox(
@@ -455,17 +463,21 @@ with right_col:
             p_memo = st.text_area("메모", placeholder="세부 내용을 입력하세요.")
             
             if st.form_submit_button("➕ 개인 일정 등록", use_container_width=True):
-                new_event = pd.DataFrame([{
-                    "날짜": p_date,
-                    "시간": p_time.strftime("%H:%M"),
-                    "이름": p_title,
-                    "이동 시간": travel_time,
-                    "태그": p_tag,
-                    "메모": p_memo
-                }])
-                st.session_state.personal_schedule = pd.concat([st.session_state.personal_schedule, new_event], ignore_index=True)
-                st.success("개인 일정이 등록되었습니다!")
-                st.rerun()
+                if p_start_time >= p_end_time:
+                    st.error("종료 시간은 시작 시간보다 뒤여야 합니다.")
+                else:
+                    new_event = pd.DataFrame([{
+                        "날짜": p_date,
+                        "시작 시간": p_start_time.strftime("%H:%M"),
+                        "종료 시간": p_end_time.strftime("%H:%M"),
+                        "이름": p_title,
+                        "이동 시간": travel_time,
+                        "태그": p_tag,
+                        "메모": p_memo
+                    }])
+                    st.session_state.personal_schedule = pd.concat([st.session_state.personal_schedule, new_event], ignore_index=True)
+                    st.success("개인 일정이 등록되었습니다!")
+                    st.rerun()
                 
         if not st.session_state.personal_schedule.empty:
             st.divider()
