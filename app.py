@@ -6,6 +6,7 @@ import math
 import calendar
 import gspread
 from google.oauth2.service_account import Credentials
+import streamlit.components.v1 as components
 
 # ==========================================
 # 앱 내 전체 텍스트 모음
@@ -65,10 +66,9 @@ def create_empty_personal_df():
     return pd.DataFrame(columns=PERSONAL_COLUMNS)
 
 # ==========================================
-# Google Sheets 연동 (오류 완벽 해결 버전)
+# Google Sheets 연동
 # ==========================================
 def get_gsheet_client():
-    """토큰 만료 방지를 위해 캐시 없이 매번 신규 클라이언트 생성"""
     try:
         if "gcp_service_account" in st.secrets:
             credentials = Credentials.from_service_account_info(
@@ -77,14 +77,13 @@ def get_gsheet_client():
             )
             return gspread.authorize(credentials)
         return None
-    except Exception as e:
+    except Exception:
         return None
 
 def auto_sync_to_gsheets():
-    """개인 일정 및 학습 스케줄을 구글 시트로 자동 저장"""
     client = get_gsheet_client()
     if client is None:
-        return  # Secrets에 설정이 없으면 동작 스킵
+        return
         
     try:
         spreadsheet_url = None
@@ -98,19 +97,14 @@ def auto_sync_to_gsheets():
 
         doc = client.open_by_url(spreadsheet_url)
         
-        # 1. 학습 스케줄 정제 및 저장
         sheet_study = doc.sheet1
         save_study_df = st.session_state.schedule.copy() if not st.session_state.schedule.empty else create_empty_study_df()
-        
-        # 데이터 타입 정제 (None -> 빈문자열, 날짜 -> str)
         save_study_df = save_study_df.fillna("")
         save_study_df["날짜"] = save_study_df["날짜"].astype(str)
-        
         study_values = [save_study_df.columns.tolist()] + save_study_df.astype(str).values.tolist()
         sheet_study.clear()
         sheet_study.update(study_values)
 
-        # 2. 개인 일정 정제 및 저장
         try:
             sheet_personal = doc.worksheet("PersonalSchedule")
         except Exception:
@@ -119,7 +113,6 @@ def auto_sync_to_gsheets():
         save_p_df = st.session_state.personal_schedule.copy() if not st.session_state.personal_schedule.empty else create_empty_personal_df()
         save_p_df = save_p_df.fillna("")
         save_p_df["날짜"] = save_p_df["날짜"].astype(str)
-        
         personal_values = [save_p_df.columns.tolist()] + save_p_df.astype(str).values.tolist()
         sheet_personal.clear()
         sheet_personal.update(personal_values)
@@ -240,7 +233,6 @@ def serialize_state():
 def deserialize_state(data_json, mode="replace"):
     data = json.loads(data_json)
     
-    # 1. 학습 스케줄 안전 복원
     s_records = data.get("schedule", [])
     if s_records:
         new_s_df = pd.DataFrame(s_records)
@@ -258,7 +250,6 @@ def deserialize_state(data_json, mode="replace"):
     else:
         st.session_state.schedule = new_s_df[STUDY_COLUMNS]
 
-    # 2. 개인 일정 안전 복원
     p_records = data.get("personal_schedule", [])
     if p_records:
         new_p_df = pd.DataFrame(p_records)
@@ -276,14 +267,12 @@ def deserialize_state(data_json, mode="replace"):
     else:
         st.session_state.personal_schedule = new_p_df[PERSONAL_COLUMNS]
 
-    # 3. 과목 설정 복원
     if "exam_subjects" in data:
         if mode == "merge":
             st.session_state.exam_subjects.extend(data["exam_subjects"])
         else:
             st.session_state.exam_subjects = data["exam_subjects"]
 
-    # 4. 루틴 복원
     if "routine" in data:
         r_data = data["routine"]
         st.session_state.routine["sleep"]["start"] = datetime.strptime(r_data["sleep"]["start"], "%H:%M").time()
@@ -296,7 +285,6 @@ def deserialize_state(data_json, mode="replace"):
             } for m in r_data.get("meals", [])
         ]
 
-    # 5. 학습 방식 복원
     if "study_style" in data:
         ss_data = data["study_style"]
         st.session_state.study_style["target_hours"] = float(ss_data.get("target_hours", 4.0))
@@ -321,6 +309,42 @@ def deserialize_state(data_json, mode="replace"):
                 }
 
     auto_sync_to_gsheets()
+
+# ==========================================
+# 브라우저 LocalStorage 동기화 (새로고침 방지)
+# ==========================================
+# 1. URL 쿼리 파라미터를 통해 로컬저장소 백업 데이터 자동 복원
+if "restore_data" in st.query_params:
+    try:
+        data_param = st.query_params["restore_data"]
+        deserialize_state(data_param, mode="replace")
+        st.query_params.clear()
+        st.rerun()
+    except Exception:
+        pass
+
+# 2. 로컬저장소에 현재 상태 자동 백업 스크립트 실행
+current_json = serialize_state()
+components.html(
+    f"""
+    <script>
+        const key = "stucal_auto_backup";
+        const currentData = {json.dumps(current_json)};
+        
+        // 새로고침 시 로컬저장소에서 데이터 복원 시도
+        const savedData = localStorage.getItem(key);
+        if (savedData && !window.location.search.includes("restore_data")) {{
+            const url = new URL(window.location.href);
+            url.searchParams.set("restore_data", savedData);
+            window.location.href = url.toString();
+        }} else {{
+            // 현재 상태를 로컬저장소에 백업
+            localStorage.setItem(key, currentData);
+        }}
+    </script>
+    """,
+    height=0
+)
 
 # ==========================================
 # 사이드바
@@ -372,6 +396,10 @@ else:
         st.session_state.schedule = create_empty_study_df()
         st.session_state.personal_schedule = create_empty_personal_df()
         st.session_state.show_reset_confirm = False
+        
+        # 로컬 저장소 백업 삭제
+        components.html("<script>localStorage.removeItem('stucal_auto_backup');</script>", height=0)
+        
         auto_sync_to_gsheets()
         st.sidebar.success(TEXTS["SIDEBAR"]["RESET_SUCCESS"])
         st.rerun()
