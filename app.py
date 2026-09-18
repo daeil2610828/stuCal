@@ -53,7 +53,19 @@ TEXTS = {
 st.set_page_config(page_title=TEXTS["APP_TITLE"].replace("📅 ", ""), layout="wide")
 
 # ==========================================
-# Google Sheets 연동 및 자동 저장 함수
+# 기본 데이터프레임 스키마 정의
+# ==========================================
+STUDY_COLUMNS = ["id", "날짜", "종류", "제목", "목표 범위", "목표량", "완료여부", "메모"]
+PERSONAL_COLUMNS = ["id", "날짜", "시작 시간", "종료 시간", "이름", "이동 시간", "태그", "메모"]
+
+def create_empty_study_df():
+    return pd.DataFrame(columns=STUDY_COLUMNS)
+
+def create_empty_personal_df():
+    return pd.DataFrame(columns=PERSONAL_COLUMNS)
+
+# ==========================================
+# Google Sheets 연동 및 자동 저장 함수 (오류 수정)
 # ==========================================
 @st.cache_resource
 def get_gsheet_client():
@@ -70,46 +82,44 @@ def auto_sync_to_gsheets():
     """개인 일정 및 학습 스케줄을 구글 시트로 자동 저장하는 함수"""
     try:
         client = get_gsheet_client()
-        if client is None: return
+        if client is None: 
+            return
+            
         spreadsheet_url = st.secrets["connections"]["gsheets"]["spreadsheet"]
         doc = client.open_by_url(spreadsheet_url)
         
         # 1. 학습 스케줄 저장 (sheet1)
         sheet_study = doc.sheet1
-        save_study_df = st.session_state.schedule.copy()
-        if "날짜" in save_study_df.columns:
-            save_study_df["날짜"] = save_study_df["날짜"].astype(str)
+        save_study_df = st.session_state.schedule.copy() if not st.session_state.schedule.empty else create_empty_study_df()
+        save_study_df["날짜"] = save_study_df["날짜"].astype(str)
+        
+        values_study = [save_study_df.columns.tolist()] + save_study_df.astype(str).values.tolist()
         sheet_study.clear()
-        if not save_study_df.empty:
-            sheet_study.update([save_study_df.columns.values.tolist()] + save_study_df.values.tolist())
+        sheet_study.update(range_name='A1', values=values_study)
 
-        # 2. 개인 일정 저장 (PersonalSchedule)
+        # 2. 개인 일정 저장 (PersonalSchedule 탭)
         try:
             sheet_personal = doc.worksheet("PersonalSchedule")
         except Exception:
             sheet_personal = doc.add_worksheet(title="PersonalSchedule", rows="1000", cols="20")
             
-        save_p_df = st.session_state.personal_schedule.copy()
-        if "날짜" in save_p_df.columns:
-            save_p_df["날짜"] = save_p_df["날짜"].astype(str)
+        save_p_df = st.session_state.personal_schedule.copy() if not st.session_state.personal_schedule.empty else create_empty_personal_df()
+        save_p_df["날짜"] = save_p_df["날짜"].astype(str)
+        
+        values_p = [save_p_df.columns.tolist()] + save_p_df.astype(str).values.tolist()
         sheet_personal.clear()
-        if not save_p_df.empty:
-            sheet_personal.update([save_p_df.columns.values.tolist()] + save_p_df.values.tolist())
+        sheet_personal.update(range_name='A1', values=values_p)
     except Exception as e:
         st.error(f"{TEXTS['MESSAGES']['GSHEET_SAVE_ERROR']}{e}")
 
 # ==========================================
 # 세션 상태 초기화
 # ==========================================
-if "schedule" not in st.session_state or st.session_state.schedule is None:
-    st.session_state.schedule = pd.DataFrame(
-        columns=["id", "날짜", "종류", "제목", "목표 범위", "목표량", "완료여부", "메모"]
-    )
+if "schedule" not in st.session_state or st.session_state.schedule is None or st.session_state.schedule.empty:
+    st.session_state.schedule = create_empty_study_df()
 
-if "personal_schedule" not in st.session_state:
-    st.session_state.personal_schedule = pd.DataFrame(
-        columns=["id", "날짜", "시작 시간", "종료 시간", "이름", "이동 시간", "태그", "메모"]
-    )
+if "personal_schedule" not in st.session_state or st.session_state.personal_schedule is None or st.session_state.personal_schedule.empty:
+    st.session_state.personal_schedule = create_empty_personal_df()
 
 if "routine" not in st.session_state or not isinstance(st.session_state.routine, dict):
     st.session_state.routine = {
@@ -171,7 +181,7 @@ def remove_subject(index):
         st.session_state.exam_subjects.pop(index)
 
 # ==========================================
-# 직렬화 / 역직렬화 헬퍼 함수
+# 직렬화 / 역직렬화 헬퍼 함수 (KeyError 방지)
 # ==========================================
 def serialize_state():
     state_dict = {
@@ -215,30 +225,50 @@ def serialize_state():
 def deserialize_state(data_json, mode="replace"):
     data = json.loads(data_json)
     
-    new_s_df = pd.DataFrame(data.get("schedule", []))
-    if "날짜" in new_s_df.columns and not new_s_df.empty:
-        new_s_df["날짜"] = pd.to_datetime(new_s_df["날짜"]).dt.date
-        
+    # 1. 학습 스케줄 안전 복원
+    s_records = data.get("schedule", [])
+    if s_records:
+        new_s_df = pd.DataFrame(s_records)
+        if "날짜" in new_s_df.columns:
+            new_s_df["날짜"] = pd.to_datetime(new_s_df["날짜"]).dt.date
+    else:
+        new_s_df = create_empty_study_df()
+
+    for col in STUDY_COLUMNS:
+        if col not in new_s_df.columns:
+            new_s_df[col] = None
+
     if mode == "merge" and not st.session_state.schedule.empty:
         st.session_state.schedule = pd.concat([st.session_state.schedule, new_s_df], ignore_index=True).drop_duplicates()
     else:
-        st.session_state.schedule = new_s_df
+        st.session_state.schedule = new_s_df[STUDY_COLUMNS]
 
-    new_p_df = pd.DataFrame(data.get("personal_schedule", []))
-    if "날짜" in new_p_df.columns and not new_p_df.empty:
-        new_p_df["날짜"] = pd.to_datetime(new_p_df["날짜"]).dt.date
-        
+    # 2. 개인 일정 안전 복원
+    p_records = data.get("personal_schedule", [])
+    if p_records:
+        new_p_df = pd.DataFrame(p_records)
+        if "날짜" in new_p_df.columns:
+            new_p_df["날짜"] = pd.to_datetime(new_p_df["날짜"]).dt.date
+    else:
+        new_p_df = create_empty_personal_df()
+
+    for col in PERSONAL_COLUMNS:
+        if col not in new_p_df.columns:
+            new_p_df[col] = None
+
     if mode == "merge" and not st.session_state.personal_schedule.empty:
         st.session_state.personal_schedule = pd.concat([st.session_state.personal_schedule, new_p_df], ignore_index=True).drop_duplicates()
     else:
-        st.session_state.personal_schedule = new_p_df
+        st.session_state.personal_schedule = new_p_df[PERSONAL_COLUMNS]
 
+    # 3. 과목 설정 복원
     if "exam_subjects" in data:
         if mode == "merge":
             st.session_state.exam_subjects.extend(data["exam_subjects"])
         else:
             st.session_state.exam_subjects = data["exam_subjects"]
 
+    # 4. 루틴 복원
     if "routine" in data:
         r_data = data["routine"]
         st.session_state.routine["sleep"]["start"] = datetime.strptime(r_data["sleep"]["start"], "%H:%M").time()
@@ -251,6 +281,7 @@ def deserialize_state(data_json, mode="replace"):
             } for m in r_data.get("meals", [])
         ]
 
+    # 5. 학습 방식 복원
     if "study_style" in data:
         ss_data = data["study_style"]
         st.session_state.study_style["target_hours"] = float(ss_data.get("target_hours", 4.0))
@@ -277,7 +308,7 @@ def deserialize_state(data_json, mode="replace"):
     auto_sync_to_gsheets()
 
 # ==========================================
-# 사이드바 : 데이터 백업 / 불러오기 / 일정 리셋
+# 사이드바
 # ==========================================
 st.sidebar.title(TEXTS["SIDEBAR"]["TITLE"])
 
@@ -312,7 +343,6 @@ if import_file is not None:
 
 st.sidebar.divider()
 
-# ⚠️ 모든 일정 리셋 (확인 과정 포함)
 st.sidebar.subheader(TEXTS["SIDEBAR"]["RESET_HEADER"])
 
 if not st.session_state.show_reset_confirm:
@@ -324,13 +354,8 @@ else:
     rc_col1, rc_col2 = st.sidebar.columns(2)
     
     if rc_col1.button(TEXTS["SIDEBAR"]["RESET_CONFIRM_BTN"], type="primary", use_container_width=True):
-        # 일정 데이터만 비우기 (설정 및 시각표 유지는 유지)
-        st.session_state.schedule = pd.DataFrame(
-            columns=["id", "날짜", "종류", "제목", "목표 범위", "목표량", "완료여부", "메모"]
-        )
-        st.session_state.personal_schedule = pd.DataFrame(
-            columns=["id", "날짜", "시작 시간", "종료 시간", "이름", "이동 시간", "태그", "메모"]
-        )
+        st.session_state.schedule = create_empty_study_df()
+        st.session_state.personal_schedule = create_empty_personal_df()
         st.session_state.show_reset_confirm = False
         auto_sync_to_gsheets()
         st.sidebar.success(TEXTS["SIDEBAR"]["RESET_SUCCESS"])
@@ -383,13 +408,13 @@ with left_col:
     cal = calendar.monthcalendar(year, month)
     
     month_schedules = {}
-    if not st.session_state.schedule.empty:
+    if not st.session_state.schedule.empty and "날짜" in st.session_state.schedule.columns:
         for _, r in st.session_state.schedule.iterrows():
             d = r["날짜"]
             if isinstance(d, date) and d.year == year and d.month == month:
                 month_schedules.setdefault(d.day, []).append(r["종류"])
 
-    if not st.session_state.personal_schedule.empty:
+    if not st.session_state.personal_schedule.empty and "날짜" in st.session_state.personal_schedule.columns:
         for _, r in st.session_state.personal_schedule.iterrows():
             d = r["날짜"]
             if isinstance(d, date) and d.year == year and d.month == month:
@@ -427,8 +452,8 @@ with left_col:
     selected_dt = st.session_state.selected_date
     st.markdown(f"### 📅 {selected_dt.strftime('%Y년 %m월 %d일')} 일정 상세")
 
-    day_personals = st.session_state.personal_schedule[st.session_state.personal_schedule["날짜"] == selected_dt]
-    day_studies = st.session_state.schedule[st.session_state.schedule["날짜"] == selected_dt]
+    day_personals = st.session_state.personal_schedule[st.session_state.personal_schedule["날짜"] == selected_dt] if not st.session_state.personal_schedule.empty and "날짜" in st.session_state.personal_schedule.columns else create_empty_personal_df()
+    day_studies = st.session_state.schedule[st.session_state.schedule["날짜"] == selected_dt] if not st.session_state.schedule.empty and "날짜" in st.session_state.schedule.columns else create_empty_study_df()
 
     if day_personals.empty and day_studies.empty:
         st.info("해당 날짜에 등록된 일정이 없습니다.")
