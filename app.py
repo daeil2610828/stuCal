@@ -1,5 +1,4 @@
 import streamlit as st
-import streamlit.components.v1 as components
 import pandas as pd
 from datetime import date, datetime, timedelta
 import math
@@ -101,9 +100,10 @@ else:
 
 st.sidebar.divider()
 
+# 명칭 변경: 테마 색상, 화면 모드
 st.sidebar.subheader("🎨 화면 스타일 설정")
-accent_color = st.sidebar.selectbox(
-    "액센트 테마 컬러",
+accent_color_option = st.sidebar.selectbox(
+    "테마 색상",
     ["클래식 블루 (#1a73e8)", "에메랄드 그린 (#28a745)", "로열 퍼플 (#6f42c1)", "웜 오렌지 (#fd7e14)"],
     index=0
 )
@@ -113,25 +113,122 @@ color_map = {
     "로열 퍼플 (#6f42c1)": "#6f42c1",
     "웜 오렌지 (#fd7e14)": "#fd7e14"
 }
-selected_accent = color_map[accent_color]
+selected_accent = color_map[accent_color_option]
 
-theme_mode = st.sidebar.radio("모드 설정", ["라이트 모드", "다크 모드"], index=0)
+theme_mode = st.sidebar.radio("화면 모드", ["라이트 모드", "다크 모드"], index=0)
+
+# --- 다크모드 및 테마 색상 Dynamic CSS 적용 ---
+is_dark = (theme_mode == "다크 모드")
+
+bg_color = "#1e1e1e" if is_dark else "#ffffff"
+text_color = "#e0e0e0" if is_dark else "#3c4043"
+card_bg = "#2d2d2d" if is_dark else "#f8f9fa"
+border_color = "#444444" if is_dark else "#dadce0"
+th_bg = "#333333" if is_dark else "#f1f3f4"
+th_text = "#bbbbbb" if is_dark else "#5f6368"
+
+st.markdown(f"""
+    <style>
+        /* 전체 테마 배경 및 글자색 설정 */
+        .stApp {{
+            background-color: {bg_color} !important;
+            color: {text_color} !important;
+        }}
+        
+        /* 메인 버튼 스타일링 (테마 색상 적용) */
+        div.stButton > button {{
+            background-color: {selected_accent} !important;
+            color: white !important;
+            border: none !important;
+            border-radius: 6px !important;
+            font-weight: bold !important;
+            transition: opacity 0.2s;
+        }}
+        div.stButton > button:hover {{
+            opacity: 0.85 !important;
+        }}
+
+        /* 탭(Tabs) 선택 스타일링 (테마 색상 적용) */
+        button[data-baseweb="tab"] {{
+            color: {text_color} !important;
+        }}
+        button[data-baseweb="tab"][aria-selected="true"] {{
+            color: {selected_accent} !important;
+            border-bottom-color: {selected_accent} !important;
+            font-weight: bold !important;
+        }}
+
+        /* 라디오 버튼(Radio Button) 체크 색상 (테마 색상 적용) */
+        div[role="radiogroup"] label[data-baseweb="radio"] div[aria-checked="true"] {{
+            background-color: {selected_accent} !important;
+        }}
+
+        /* Progress Bar (진행률 바) 색상 */
+        div.stProgress > div > div > div > div {{
+            background-color: {selected_accent} !important;
+        }}
+
+        /* 데이터 에디터 / 테이블 스타일링 */
+        .excel-table {{
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+            border: 1px solid {border_color};
+            background-color: {card_bg};
+        }}
+        .excel-table th {{
+            background-color: {th_bg};
+            border: 1px solid {border_color};
+            padding: 8px 0;
+            text-align: center;
+            font-size: 13px;
+            font-weight: bold;
+            color: {th_text};
+        }}
+        .excel-table td {{
+            border: 1px solid {border_color};
+            height: 85px;
+            vertical-align: top;
+            padding: 6px;
+            background-color: {card_bg};
+        }}
+        .day-num {{
+            font-size: 12px;
+            font-weight: bold;
+            color: {text_color};
+            display: block;
+            margin-bottom: 4px;
+        }}
+        .other-month {{
+            opacity: 0.35;
+        }}
+        .schedule-badge {{
+            background-color: {selected_accent}22;
+            color: {selected_accent};
+            border: 1px solid {selected_accent};
+            border-radius: 4px;
+            padding: 2px 4px;
+            font-size: 11px;
+            margin-top: 2px;
+            word-break: break-all;
+            display: block;
+        }}
+    </style>
+""", unsafe_allow_html=True)
 
 st.title("📅 스마트 시험 D-Day & 공부 스케줄러")
 st.caption("시험 날짜와 공부 범위를 설정하고, 달성도에 따라 스케줄을 자동으로 재조정하세요.")
 
-# --- 메인 레이아웃 (좌: 엑셀 커스텀 달력 / 우: 탭뷰) ---
+# --- 메인 레이아웃 (좌: 엑셀형 달력 표 / 우: 탭뷰) ---
 left_col, right_col = st.columns([1.1, 0.9], gap="large")
 
 # ==========================================
-# [왼쪽 칼럼] 새로고침 없는 HTML Component 엑셀 달력
+# [왼쪽 칼럼] 엑셀형 달력
 # ==========================================
 with left_col:
-    st.subheader("🗓️ 달력")
+    st.subheader("🗓️ 달력 보기")
     
-    # 상단 컨트롤: 이전/다음 달 버튼 및 통합 날짜 선택기
     nav_col1, nav_col2, nav_col3 = st.columns([0.8, 4.4, 0.8])
-    
     selected_dt = st.session_state.selected_date
     
     with nav_col1:
@@ -158,7 +255,7 @@ with left_col:
             st.session_state.selected_date = next_month.replace(day=min(selected_dt.day, 28))
             st.rerun()
 
-    # --- HTML / JS 커스텀 컴포넌트 생성 ---
+    # --- HTML 엑셀 표 그리드 생성 ---
     year = selected_dt.year
     month = selected_dt.month
     
@@ -170,168 +267,50 @@ with left_col:
     cal = calendar.Calendar(firstweekday=6)
     month_days = cal.monthdatescalendar(year, month)
 
-    # HTML/CSS 및 Streamlit postMessage 이벤트 연동 스크립트
-    html_code = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-    <style>
-        * {{
-            box-sizing: border-box;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        }}
-        body {{
-            margin: 0;
-            padding: 0;
-            background-color: transparent;
-        }}
-        .excel-table {{
-            width: 100%;
-            border-collapse: collapse;
-            table-layout: fixed;
-            border: 1px solid #dadce0;
-        }}
-        .excel-table th {{
-            background-color: #f1f3f4;
-            border: 1px solid #dadce0;
-            padding: 6px 0;
-            text-align: center;
-            font-size: 12px;
-            font-weight: bold;
-            color: #5f6368;
-        }}
-        .excel-table td {{
-            border: 1px solid #dadce0;
-            height: 80px;
-            vertical-align: top;
-            padding: 6px;
-            background-color: #ffffff;
-            cursor: pointer;
-            transition: background-color 0.1s ease;
-        }}
-        .excel-table td:hover {{
-            background-color: #f8f9fa;
-        }}
-        .excel-table td.selected {{
-            background-color: #e8f0fe !important;
-            box-shadow: inset 0 0 0 2px {selected_accent};
-        }}
-        .excel-table td.selected .day-num {{
-            color: {selected_accent};
-            font-weight: bold;
-        }}
-        .excel-table td.other-month {{
-            background-color: #fcfcfc;
-            cursor: default;
-        }}
-        .excel-table td.other-month .day-num {{
-            color: #ccc;
-        }}
-        .day-num {{
-            font-size: 12px;
-            text-align: left;
-            margin-bottom: 4px;
-            display: block;
-            color: #3c4043;
-        }}
-        .cell-info {{
-            font-size: 11px;
-            line-height: 1.2;
-            word-break: break-all;
-            color: #1a73e8;
-        }}
-    </style>
-    </head>
-    <body>
-    <table class="excel-table">
-        <thead>
-            <tr>
-                <th>Sun</th><th>Mon</th><th>Tue</th><th>Wed</th><th>Thu</th><th>Fri</th><th>Sat</th>
-            </tr>
-        </thead>
-        <tbody>
-    """
+    html_code = '<table class="excel-table"><thead><tr>'
+    for day_name in ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]:
+        html_code += f'<th>{day_name}</th>'
+    html_code += '</tr></thead><tbody>'
 
     for week in month_days:
-        html_code += "<tr>"
+        html_code += '<tr>'
         for day_date in week:
             is_current_month = (day_date.month == month)
-            is_selected = (day_date == selected_dt)
-            date_str = day_date.strftime("%Y-%m-%d")
-            
             data = schedule_dict.get(day_date, None)
             
-            td_classes = []
-            if not is_current_month:
-                td_classes.append("other-month")
-            if is_selected and is_current_month:
-                td_classes.append("selected")
-                
-            td_class_str = f'class="{" ".join(td_classes)}"' if td_classes else ''
+            td_class = "" if is_current_month else 'class="other-month"'
             
             content_html = ""
             if is_current_month and data is not None:
                 is_done = data.get("완료여부", False)
                 icon = "✅" if is_done else "📖"
-                content_html = f'<div class="cell-info">{icon} {data["목표 범위"]}</div>'
+                content_html = f'<div class="schedule-badge">{icon} {data["목표 범위"]}</div>'
                 
-            onclick_attr = f'onclick="onCellClick(\'{date_str}\')"' if is_current_month else ''
-            
-            html_code += f'<td {td_class_str} {onclick_attr}>'
+            html_code += f'<td {td_class}>'
             html_code += f'<span class="day-num">{day_date.day}</span>'
             html_code += content_html
             html_code += '</td>'
-            
-        html_code += "</tr>"
-        
-    html_code += f"""
-        </tbody>
-    </table>
-
-    <script>
-    function onCellClick(dateStr) {{
-        // 새로고침 없이 Streamlit 세션 상태로 데이터 전달
-        window.parent.postMessage({{
-            type: 'streamlit:setComponentValue',
-            value: dateStr
-        }}, '*');
-    }}
-    </script>
-    </body>
-    </html>
-    """
-
-    # 컴포넌트 렌더링 및 클릭 이벤트 수신 (높이 자동 맞춤)
-    clicked_date_val = components.html(html_code, height=520)
-
-    # 클릭한 날짜가 수신되면 세션 상태 업데이트 후 해당 날짜로 연동
-    if clicked_date_val:
-        try:
-            new_clicked_date = datetime.strptime(clicked_date_val, "%Y-%m-%d").date()
-            if new_clicked_date != st.session_state.selected_date:
-                st.session_state.selected_date = new_clicked_date
-                st.rerun()
-        except Exception:
-            pass
+        html_code += '</tr>'
+    html_code += '</tbody></table>'
+    
+    st.markdown(html_code, unsafe_allow_html=True)
 
 # ==========================================
 # [오른쪽 칼럼] 탭뷰 (1, 2, 3)
 # ==========================================
 with right_col:
-    tab1, tab2, tab3 = st.tabs(["1", "2", "3"])
+    tab1, tab2, tab3 = st.tabs(["1. 공부 기록", "2. 일정 확인/수정", "3. 설정"])
     
     # --------------------------------------
-    # TAB 1: 일별 공부 기록 및 스케줄 조정
+    # TAB 1: 일별 공부 기록 및 자동 스케줄 재조정
     # --------------------------------------
     with tab1:
-        st.subheader("📋 일별 공부 기록 및 자동 스케줄 재조정")
+        st.subheader("📋 공부 기록 및 스케줄 조정")
         
         if st.session_state.schedule is not None and not st.session_state.schedule.empty:
             df = st.session_state.schedule
             calculated_total = int(df["목표량"].sum())
-
             total_completed = int(df["실제 완료량"].sum())
-            remaining_amount = max(0, calculated_total - total_completed)
             progress_pct = min(100.0, (total_completed / calculated_total) * 100) if calculated_total > 0 else 0
             
             kpi_col1, kpi_col2, kpi_col3 = st.columns(3)
@@ -359,14 +338,14 @@ with right_col:
             btn_col1, btn_col2 = st.columns(2)
             
             with btn_col1:
-                if st.button("💾 구글 시트에 진도 저장", use_container_width=True):
+                if st.button("💾 구글 시트에 저장", use_container_width=True):
                     st.session_state.schedule = edited_df
                     save_schedule_to_gsheets(edited_df)
                     st.success("구글 시트에 최신 저장 완료!")
                     st.rerun()
 
             with btn_col2:
-                if st.button("🔄 다이나믹 일정 재조정", use_container_width=True):
+                if st.button("🔄 일정 자동 재조정", use_container_width=True):
                     today = date.today()
                     future_mask = (edited_df["날짜"] >= today) & (~edited_df["완료여부"])
                     future_days_count = future_mask.sum()
@@ -376,7 +355,7 @@ with right_col:
                     
                     if new_remaining <= 0:
                         st.balloons()
-                        st.success("🎉 이미 모든 공부 목표를 달성했습니다!")
+                        st.success("🎉 모든 공부 목표를 달성했습니다!")
                     elif future_days_count <= 0:
                         st.warning("⚠️ 남은 공부 기간이 없습니다.")
                     else:
@@ -396,18 +375,41 @@ with right_col:
                         st.success("재조정이 완료되었습니다!")
                         st.rerun()
         else:
-            st.info("오른쪽 탭 영역에 설정 메뉴가 구성되면 스케줄을 추가해 주세요.")
+            st.info("등록된 스케줄 데이터가 없습니다. 구글 시트를 연동해 주세요.")
 
     # --------------------------------------
-    # TAB 2: 임시 영역
+    # TAB 2: 일정 클릭 & 직접 수정
     # --------------------------------------
     with tab2:
-        st.subheader("📌 2번 영역")
-        st.write("사이드바에 있던 시험 설정 메뉴나 분석 그래프 등을 이곳에 배치할 수 있습니다.")
+        st.subheader("📌 등록된 일정 개별 선택 및 수정")
+        if st.session_state.schedule is not None and not st.session_state.schedule.empty:
+            df = st.session_state.schedule
+            schedule_dates = df["날짜"].tolist()
+            
+            selected_item_date = st.selectbox("수정할 일정을 선택하세요", options=schedule_dates, index=0)
+            target_row = df[df["날짜"] == selected_item_date].iloc[0]
+            
+            with st.form("edit_schedule_form"):
+                st.write(f"📅 **선택된 날짜**: {selected_item_date}")
+                new_range = st.text_input("목표 범위", value=target_row["목표 범위"])
+                new_amount = st.number_input("목표량", value=int(target_row["목표량"]))
+                new_done = st.checkbox("완료 여부", value=bool(target_row["완료여부"]))
+                
+                if st.form_submit_button("일정 업데이트"):
+                    idx = df[df["날짜"] == selected_item_date].index[0]
+                    df.loc[idx, "목표 범위"] = new_range
+                    df.loc[idx, "목표량"] = new_amount
+                    df.loc[idx, "완료여부"] = new_done
+                    st.session_state.schedule = df
+                    save_schedule_to_gsheets(df)
+                    st.success("일정이 업데이트되었습니다!")
+                    st.rerun()
+        else:
+            st.info("선택할 수 있는 일정 데이터가 없습니다.")
 
     # --------------------------------------
-    # TAB 3: 임시 영역
+    # TAB 3: 기타 설정
     # --------------------------------------
     with tab3:
-        st.subheader("📌 3번 영역")
-        st.write("여기에 추후 필요한 기능을 구현할 수 있습니다.")
+        st.subheader("📌 설정 메뉴")
+        st.write("앱 환경설정 및 구글 시트 상태를 점검할 수 있습니다.")
