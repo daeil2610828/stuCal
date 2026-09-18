@@ -203,7 +203,7 @@ st.caption(TEXTS["APP_CAPTION"])
 left_col, right_col = st.columns([1.1, 0.9], gap="large")
 
 # ------------------------------------------
-# [왼쪽 칼럼] 기본 달력 표
+# [왼쪽 칼럼] 기본 달력 표 (팝업 기능 적용)
 # ------------------------------------------
 with left_col:
     st.subheader(TEXTS["CALENDAR"]["HEADER"])
@@ -235,7 +235,7 @@ with left_col:
             st.session_state.selected_date = next_month.replace(day=min(selected_dt.day, 28))
             st.rerun()
 
-    # 달력 표 생성
+    # 달력 데이터 준비
     year = selected_dt.year
     month = selected_dt.month
     
@@ -247,7 +247,10 @@ with left_col:
     personal_dict = {}
     if not st.session_state.personal_schedule.empty:
         for _, row in st.session_state.personal_schedule.iterrows():
-            personal_dict[row["날짜"]] = row["이름"]
+            p_date = row["날짜"]
+            if p_date not in personal_dict:
+                personal_dict[p_date] = []
+            personal_dict[p_date].append(row)
 
     cal = calendar.Calendar(firstweekday=6) # 일요일 시작
     month_days = cal.monthdatescalendar(year, month)
@@ -261,6 +264,7 @@ with left_col:
             border-collapse: collapse;
             text-align: left;
             border: 1px solid rgba(128, 128, 128, 0.3);
+            position: relative;
         }}
         .simple-cal th {{
             border: 1px solid rgba(128, 128, 128, 0.3);
@@ -272,15 +276,31 @@ with left_col:
         }}
         .simple-cal td {{
             border: 1px solid rgba(128, 128, 128, 0.3);
-            height: 75px;
+            height: 85px;
             vertical-align: top;
-            padding: 6px;
+            padding: 4px;
             background-color: transparent;
             color: var(--text-color, inherit);
+            position: relative;
         }}
         .other-m {{
             opacity: 0.35;
         }}
+        
+        /* 팝업 스타일 지정 */
+        .event-details {{
+            position: relative;
+            margin-top: 3px;
+        }}
+        .event-details summary {{
+            list-style: none;
+            cursor: pointer;
+            outline: none;
+        }}
+        .event-details summary::-webkit-details-marker {{
+            display: none;
+        }}
+        
         .badge {{
             background-color: rgba(26, 115, 232, 0.15);
             color: var(--text-color, inherit);
@@ -288,7 +308,6 @@ with left_col:
             padding: 2px 4px;
             border-radius: 4px;
             font-size: 11px;
-            margin-top: 4px;
             display: block;
             word-break: break-all;
         }}
@@ -299,9 +318,34 @@ with left_col:
             padding: 2px 4px;
             border-radius: 4px;
             font-size: 11px;
-            margin-top: 2px;
             display: block;
             word-break: break-all;
+        }}
+        
+        /* 레이어 팝업 박스 */
+        .popup-box {{
+            position: absolute;
+            top: 25px;
+            left: 0;
+            z-index: 999;
+            width: 180px;
+            background-color: var(--background-color, #ffffff);
+            border: 1px solid rgba(128, 128, 128, 0.5);
+            border-radius: 6px;
+            padding: 8px;
+            box-shadow: 0px 4px 10px rgba(0,0,0,0.25);
+            font-size: 11px;
+            color: var(--text-color, #333333);
+        }}
+        .popup-title {{
+            font-weight: bold;
+            font-size: 12px;
+            margin-bottom: 4px;
+            border-bottom: 1px solid rgba(128, 128, 128, 0.2);
+            padding-bottom: 2px;
+        }}
+        .popup-item {{
+            margin-bottom: 2px;
         }}
     </style>
     <table class="simple-cal"><thead><tr>
@@ -313,19 +357,52 @@ with left_col:
         html_code += "<tr>"
         for day_date in week:
             is_current_month = (day_date.month == month)
-            data = schedule_dict.get(day_date, None)
-            personal_event = personal_dict.get(day_date, None)
+            study_data = schedule_dict.get(day_date, None)
+            personal_events = personal_dict.get(day_date, [])
             
             td_class = "" if is_current_month else 'class="other-m"'
             content_html = ""
             
             if is_current_month:
-                if data is not None:
-                    is_done = data.get("완료여부", False)
+                # 1. 학습 일정 팝업
+                if study_data is not None:
+                    is_done = study_data.get("완료여부", False)
                     icon = "✅" if is_done else "📖"
-                    content_html += f'<div class="badge">{icon} {data["목표 범위"]}</div>'
-                if personal_event:
-                    content_html += f'<div class="badge-personal">🛑 {personal_event}</div>'
+                    range_txt = study_data["목표 범위"]
+                    target_amt = study_data["목표량"]
+                    
+                    content_html += f"""
+                    <details class="event-details">
+                        <summary><div class="badge">{icon} {range_txt}</div></summary>
+                        <div class="popup-box">
+                            <div class="popup-title">📖 학습 일정</div>
+                            <div class="popup-item"><b>범위:</b> {range_txt}</div>
+                            <div class="popup-item"><b>목표량:</b> {target_amt}</div>
+                            <div class="popup-item"><b>상태:</b> {'완료' if is_done else ' 진행 중'}</div>
+                        </div>
+                    </details>
+                    """
+                
+                # 2. 개인 일정 팝업
+                for p_ev in personal_events:
+                    p_name = p_ev["이름"]
+                    p_time = p_ev["시간"]
+                    p_travel = p_ev["이동 시간"]
+                    p_tag = p_ev["태그"]
+                    p_memo = p_ev["메모"]
+                    
+                    content_html += f"""
+                    <details class="event-details">
+                        <summary><div class="badge-personal">🛑 {p_name}</div></summary>
+                        <div class="popup-box">
+                            <div class="popup-title">🛑 {p_name}</div>
+                            <div class="popup-item"><b>시간:</b> {p_time}</div>
+                            <div class="popup-item"><b>이동 시간:</b> {p_travel}</div>
+                            {'<div class="popup-item"><b>태그:</b> ' + p_tag + '</div>' if p_tag else ''}
+                            {'<div class="popup-item"><b>메모:</b> ' + p_memo + '</div>' if p_memo else ''}
+                        </div>
+                    </details>
+                    """
                 
             html_code += f'<td {td_class}><b>{day_date.day}</b>{content_html}</td>'
         html_code += "</tr>"
