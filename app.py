@@ -100,7 +100,6 @@ else:
 
 st.sidebar.divider()
 
-# 명칭 변경: 테마 색상, 화면 모드
 st.sidebar.subheader("🎨 화면 스타일 설정")
 accent_color_option = st.sidebar.selectbox(
     "테마 색상",
@@ -115,27 +114,10 @@ color_map = {
 }
 selected_accent = color_map[accent_color_option]
 
-theme_mode = st.sidebar.radio("화면 모드", ["라이트 모드", "다크 모드"], index=0)
-
-# --- 다크모드 및 테마 색상 Dynamic CSS 적용 ---
-is_dark = (theme_mode == "다크 모드")
-
-bg_color = "#1e1e1e" if is_dark else "#ffffff"
-text_color = "#e0e0e0" if is_dark else "#3c4043"
-card_bg = "#2d2d2d" if is_dark else "#f8f9fa"
-border_color = "#444444" if is_dark else "#dadce0"
-th_bg = "#333333" if is_dark else "#f1f3f4"
-th_text = "#bbbbbb" if is_dark else "#5f6368"
-
+# --- Streamlit 자체 다크모드/라이트모드 자동 연동 Dynamic CSS ---
 st.markdown(f"""
     <style>
-        /* 전체 테마 배경 및 글자색 설정 */
-        .stApp {{
-            background-color: {bg_color} !important;
-            color: {text_color} !important;
-        }}
-        
-        /* 메인 버튼 스타일링 (테마 색상 적용) */
+        /* 버튼 스타일링 */
         div.stButton > button {{
             background-color: {selected_accent} !important;
             color: white !important;
@@ -148,59 +130,57 @@ st.markdown(f"""
             opacity: 0.85 !important;
         }}
 
-        /* 탭(Tabs) 선택 스타일링 (테마 색상 적용) */
-        button[data-baseweb="tab"] {{
-            color: {text_color} !important;
-        }}
+        /* 탭(Tabs) 선택 스타일링 */
         button[data-baseweb="tab"][aria-selected="true"] {{
             color: {selected_accent} !important;
             border-bottom-color: {selected_accent} !important;
             font-weight: bold !important;
         }}
 
-        /* 라디오 버튼(Radio Button) 체크 색상 (테마 색상 적용) */
+        /* 라디오 버튼 선택 색상 */
         div[role="radiogroup"] label[data-baseweb="radio"] div[aria-checked="true"] {{
             background-color: {selected_accent} !important;
         }}
 
-        /* Progress Bar (진행률 바) 색상 */
+        /* Progress Bar 색상 */
         div.stProgress > div > div > div > div {{
             background-color: {selected_accent} !important;
         }}
 
-        /* 데이터 에디터 / 테이블 스타일링 */
+        /* Streamlit 자체 테마 변수 활용 달력 CSS */
         .excel-table {{
             width: 100%;
             border-collapse: collapse;
             table-layout: fixed;
-            border: 1px solid {border_color};
-            background-color: {card_bg};
+            border: 1px solid var(--gray-30, rgba(128, 128, 128, 0.3));
+            background-color: var(--background-color);
         }}
         .excel-table th {{
-            background-color: {th_bg};
-            border: 1px solid {border_color};
+            background-color: var(--secondary-background-color);
+            border: 1px solid var(--gray-30, rgba(128, 128, 128, 0.3));
             padding: 8px 0;
             text-align: center;
             font-size: 13px;
             font-weight: bold;
-            color: {th_text};
+            color: var(--text-color);
         }}
         .excel-table td {{
-            border: 1px solid {border_color};
+            border: 1px solid var(--gray-30, rgba(128, 128, 128, 0.3));
             height: 85px;
             vertical-align: top;
             padding: 6px;
-            background-color: {card_bg};
+            background-color: var(--background-color);
         }}
         .day-num {{
             font-size: 12px;
             font-weight: bold;
-            color: {text_color};
+            color: var(--text-color);
             display: block;
             margin-bottom: 4px;
         }}
         .other-month {{
-            opacity: 0.35;
+            opacity: 0.3;
+            background-color: var(--secondary-background-color);
         }}
         .schedule-badge {{
             background-color: {selected_accent}22;
