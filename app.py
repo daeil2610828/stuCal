@@ -12,7 +12,6 @@ st.set_page_config(page_title="스마트 시험 D-Day 플래너", layout="wide")
 # --- Google Sheets 클라우드 연결 (gspread 활용) ---
 @st.cache_resource
 def get_gsheet_client():
-    """Streamlit secrets에서 인증 정보를 가져와 gspread 클라이언트를 생성합니다."""
     try:
         credentials = Credentials.from_service_account_info(
             st.secrets["gcp_service_account"],
@@ -27,7 +26,6 @@ def get_gsheet_client():
         return None
 
 def load_schedule_from_gsheets():
-    """구글 시트에서 최신 스케줄 데이터를 불러옵니다."""
     try:
         client = get_gsheet_client()
         if client is None:
@@ -48,7 +46,6 @@ def load_schedule_from_gsheets():
         return None
 
 def save_schedule_to_gsheets(df):
-    """스케줄 데이터를 구글 시트로 업데이트합니다."""
     try:
         client = get_gsheet_client()
         if client is None:
@@ -76,7 +73,6 @@ if "selected_date" not in st.session_state:
 # --- 사이드바: 내보내기 & 설정 ---
 st.sidebar.title("⚙️ 설정 및 도구")
 
-# 1. 스케줄 데이터 내보내기
 st.sidebar.subheader("📤 스케줄 데이터 내보내기")
 if st.session_state.schedule is not None and not st.session_state.schedule.empty:
     export_df = st.session_state.schedule.copy()
@@ -104,7 +100,6 @@ else:
 
 st.sidebar.divider()
 
-# 2. 개인화 스타일 설정
 st.sidebar.subheader("🎨 화면 스타일 설정")
 accent_color = st.sidebar.selectbox(
     "액센트 테마 컬러",
@@ -121,30 +116,65 @@ selected_accent = color_map[accent_color]
 
 theme_mode = st.sidebar.radio("모드 설정", ["라이트 모드", "다크 모드"], index=0)
 
-# --- 커스텀 CSS 적용 (달력 셀 높이 및 반응형 디자인 처리) ---
+# --- 엑셀 스타일 CSS 및 전용 달력 클래스 고유 적용 ---
 st.markdown(f"""
     <style>
-        /* 달력 버튼 최소 높이 및 좌측 상단 정렬 스타일 */
-        .stButton > button {{
-            min-height: 85px !important;
-            height: 100% !important;
+        /* 엑셀 느낌의 달력 전용 버튼 스타일 */
+        .excel-cal-cell > button {{
+            min-height: 90px !important;
+            height: 90px !important;
+            width: 100% !important;
+            border: 1px solid #dadce0 !important;
+            border-radius: 0px !important; /* 엑셀 사각 셀 느낌 */
+            background-color: #ffffff !important;
+            color: #3c4043 !important;
+            padding: 4px 6px !important;
+            margin: 0px !important;
             display: flex !important;
             flex-direction: column !important;
             justify-content: flex-start !important;
             align-items: flex-start !important;
             text-align: left !important;
-            padding: 6px 8px !important;
-            border-radius: 8px !important;
-            white-space: pre-line !important;
-            word-break: break-all !important;
+            font-size: 13px !important;
+            box-sizing: border-box !important;
         }}
         
-        /* 선택된 날짜 하이라이트 (연파랑 스타일) */
-        .selected-day-btn > button {{
+        .excel-cal-cell > button:hover {{
+            background-color: #f1f3f4 !important;
+            border-color: #bdc1c6 !important;
+        }}
+
+        /* 선택된 엑셀 셀 (연파랑 하이라이트) */
+        .excel-cal-cell-selected > button {{
             background-color: #e8f0fe !important;
             border: 2px solid {selected_accent} !important;
-            color: #1a73e8 !important;
+            color: {selected_accent} !important;
             font-weight: bold !important;
+        }}
+
+        /* 다른 달 날짜 엑셀 셀 */
+        .excel-cal-cell-other > button {{
+            background-color: #f8f9fa !important;
+            color: #c0c4cc !important;
+            border: 1px solid #f1f3f4 !important;
+        }}
+        
+        /* 엑셀 날짜 숫자 (좌상단 정렬) */
+        .day-num {{
+            font-size: 12px;
+            font-weight: bold;
+            margin-bottom: 4px;
+            text-align: left;
+            width: 100%;
+        }}
+        
+        /* 엑셀 셀 내용 */
+        .cell-content {{
+            font-size: 11px;
+            line-height: 1.2;
+            word-break: break-all;
+            text-align: left;
+            width: 100%;
         }}
     </style>
 """, unsafe_allow_html=True)
@@ -152,22 +182,22 @@ st.markdown(f"""
 st.title("📅 스마트 시험 D-Day & 공부 스케줄러")
 st.caption("시험 날짜와 공부 범위를 설정하고, 달성도에 따라 스케줄을 자동으로 재조정하세요.")
 
-# --- 메인 레이아웃 (좌: 커스텀 달력 / 우: 탭뷰) ---
+# --- 메인 레이아웃 (좌: 엑셀 커스텀 달력 / 우: 탭뷰) ---
 left_col, right_col = st.columns([1.1, 0.9], gap="large")
 
 # ==========================================
-# [왼쪽 칼럼] 커스텀 달력 및 날짜 이동 컨트롤
+# [왼쪽 칼럼] 엑셀형 커스텀 달력
 # ==========================================
 with left_col:
     st.subheader("🗓️ 달력")
     
-    # 상단 컨트롤: 이전 달 / 통합 날짜 선택기 / 다음 달
-    nav_col1, nav_col2, nav_col3 = st.columns([1, 4, 1])
+    # 상단 컨트롤: 작고 정돈된 이전/다음 달 버튼 및 통합 날짜 선택기
+    nav_col1, nav_col2, nav_col3 = st.columns([0.8, 4.4, 0.8])
     
     selected_dt = st.session_state.selected_date
     
     with nav_col1:
-        if st.button("◀", key="prev_month_btn", use_container_width=True):
+        if st.button("◀", key="prev_m_btn"):
             first_curr = selected_dt.replace(day=1)
             prev_month_last = first_curr - timedelta(days=1)
             st.session_state.selected_date = prev_month_last.replace(day=min(selected_dt.day, prev_month_last.day))
@@ -185,12 +215,12 @@ with left_col:
             st.rerun()
 
     with nav_col3:
-        if st.button("▶", key="next_month_btn", use_container_width=True):
+        if st.button("▶", key="next_m_btn"):
             next_month = (selected_dt.replace(day=28) + timedelta(days=5)).replace(day=1)
             st.session_state.selected_date = next_month.replace(day=min(selected_dt.day, 28))
             st.rerun()
 
-    # --- 커스텀 grid 캘린더 생성 ---
+    # --- 엑셀 스타일 grid 캘린더 생성 ---
     year = selected_dt.year
     month = selected_dt.month
     
@@ -199,11 +229,15 @@ with left_col:
         for _, row in st.session_state.schedule.iterrows():
             schedule_dict[row["날짜"]] = row
 
-    # 요일 헤더
+    # 요일 헤더 (엑셀 시트 헤더 느낌)
     days_header = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
     hdr_cols = st.columns(7)
     for idx, day_name in enumerate(days_header):
-        hdr_cols[idx].markdown(f"**<div style='text-align: center; color: gray;'>{day_name}</div>**", unsafe_allow_html=True)
+        hdr_cols[idx].markdown(
+            f"<div style='text-align: center; font-weight: bold; background-color: #f1f3f4; "
+            f"border: 1px solid #dadce0; padding: 4px 0px; font-size: 12px; color: #5f6368;'>{day_name}</div>",
+            unsafe_allow_html=True
+        )
 
     cal = calendar.Calendar(firstweekday=6)
     month_days = cal.monthdatescalendar(year, month)
@@ -216,33 +250,36 @@ with left_col:
             
             data = schedule_dict.get(day_date, None)
             
-            # 날짜 숫자는 왼쪽 상단에 표시하고, 아래에 진행도/아이콘 표시
-            day_num_str = str(day_date.day)
-            label = day_num_str
+            # 셀 라벨 (좌상단 숫자 + 하단 내용)
+            day_num = str(day_date.day)
+            content_str = ""
             
             if is_current_month and data is not None:
                 is_done = data.get("완료여부", False)
                 icon = "✅" if is_done else "📖"
-                label = f"{day_num_str}\n{icon} {data['목표 범위']}"
-
-            btn_key = f"cal_btn_{day_date.strftime('%Y_%m_%d')}"
+                content_str = f"\n{icon} {data['목표 범위']}"
             
-            with week_cols[idx]:
-                # 선택된 날짜에 연파랑 CSS 클래스 조건부 적용
-                if is_selected:
-                    st.markdown('<div class="selected-day-btn">', unsafe_allow_html=True)
+            display_label = f"{day_num}{content_str}"
+            btn_key = f"excel_cell_{day_date.strftime('%Y_%m_%d')}"
+            
+            # 셀 CSS 클래스 분기
+            cell_class = "excel-cal-cell"
+            if is_selected and is_current_month:
+                cell_class = "excel-cal-cell excel-cal-cell-selected"
+            elif not is_current_month:
+                cell_class = "excel-cal-cell excel-cal-cell-other"
                 
+            with week_cols[idx]:
+                st.markdown(f'<div class="{cell_class}">', unsafe_allow_html=True)
                 if st.button(
-                    label,
+                    display_label,
                     key=btn_key,
                     use_container_width=True,
                     disabled=not is_current_month
                 ):
                     st.session_state.selected_date = day_date
                     st.rerun()
-                
-                if is_selected:
-                    st.markdown('</div>', unsafe_allow_html=True)
+                st.markdown('</div>', unsafe_allow_html=True)
 
 # ==========================================
 # [오른쪽 칼럼] 탭뷰 (1, 2, 3)
