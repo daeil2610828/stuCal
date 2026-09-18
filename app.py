@@ -11,7 +11,7 @@ from google.oauth2.service_account import Credentials
 # ==========================================
 TEXTS = {
     "APP_TITLE": "📅 스마트 시험 D-Day & 공부 스케줄러",
-    "APP_CAPTION": "시험 날짜와 공부 범위를 설정하고, 달성도에 따라 스케줄을 자동으로 재조정하세요.",
+    "APP_CAPTION": "시험 날짜와 공부 범위를 설정하고, 개인 일정 및 하루 루틴에 맞춰 학습 스케줄을 재조정하세요.",
     
     "SIDEBAR": {
         "TITLE": "📁 데이터 관리",
@@ -34,8 +34,11 @@ TEXTS = {
     
     "TABS": {
         "TAB1_NAME": "1. 공부 기록",
-        "TAB2_NAME": "2. 일정 확인/수정",
-        "TAB3_NAME": "3. 설정"
+        "TAB2_NAME": "2. 학습 일정 추가",
+        "TAB3_NAME": "3. 개인 일정 추가",
+        "TAB4_NAME": "4. 일상 루틴 설정",
+        "TAB5_NAME": "5. 일정 확인/수정",
+        "TAB6_NAME": "6. 설정"
     },
     
     "STUDY_RECORD": {
@@ -43,13 +46,46 @@ TEXTS = {
         "KPI_TOTAL": "총 목표량",
         "KPI_COMPLETED": "현재 완료량",
         "KPI_PROGRESS": "진행률",
-        "SAVE_GSHEET_BTN": "💾 Google Sheets에 저장",
-        "SAVE_SUCCESS": "Google Sheets에 저장 완료!",
+        "SAVE_GSHEET_BTN": "💾 구글 시트에 저장",
+        "SAVE_SUCCESS": "구글 시트에 저장 완료!",
         "READJUST_BTN": "🔄 일정 자동 재조정",
         "READJUST_SUCCESS": "재조정이 완료되었습니다!",
         "ALL_DONE": "🎉 모든 공부 목표를 달성했습니다!",
         "NO_FUTURE_DAYS": "⚠️ 남은 공부 기간이 없습니다.",
-        "NO_SCHEDULE_INFO": "등록된 일정 데이터가 없습니다. 파일을 업로드 해 주세요."
+        "NO_SCHEDULE_INFO": "등록된 스케줄 데이터가 없습니다. 상단 탭에서 학습 일정을 추가해주세요."
+    },
+
+    "ADD_STUDY": {
+        "HEADER": "📚 학습 일정 세부 설정 & 생성",
+        "SUBJECT_LABEL": "과목명",
+        "SUBJECT_PLACEHOLDER": "예: 일반생물학, 토익, 수능 수학",
+        "RANGE_TYPE_LABEL": "목표 단위",
+        "TOTAL_AMOUNT_LABEL": "총 목표량 (페이지/강 수 등)",
+        "START_DATE_LABEL": "공부 시작일",
+        "EXAM_DATE_LABEL": "시험/목표 완료일",
+        "CREATE_BTN": "🚀 새로운 학습 스케줄 생성",
+        "SUCCESS": "학습 스케줄이 성공적으로 생성되어 달성에 반영되었습니다!"
+    },
+
+    "ADD_PERSONAL": {
+        "HEADER": "🗓️ 개인 일정 추가 (공부 불가 시간/일정)",
+        "TITLE_LABEL": "일정 이름",
+        "TITLE_PLACEHOLDER": "예: 병원 방문, 가족 모임, 알바",
+        "DATE_LABEL": "일정 날짜",
+        "TIME_LABEL": "예상 소요 시간 (시간 단위)",
+        "MEMO_LABEL": "메모 / 상세 내용",
+        "ADD_BTN": "📌 개인 일정 등록",
+        "SUCCESS": "개인 일정이 등록되었습니다!"
+    },
+
+    "ROUTINE": {
+        "HEADER": "⏰ 일상 루틴 & 순공 시간 설정",
+        "SLEEP_LABEL": "하루 평균 취침 시간",
+        "MEAL_LABEL": "하루 식사 및 준비 시간",
+        "REST_LABEL": "기타 휴식 및 이동 시간",
+        "CALC_INFO": "💡 하루 24시간 중 학업에 투자할 수 있는 최대 시간:",
+        "SAVE_BTN": "💾 루틴 설정 저장",
+        "SAVE_SUCCESS": "일상 루틴 설정이 저장되었습니다!"
     },
     
     "SCHEDULE_EDIT": {
@@ -66,11 +102,11 @@ TEXTS = {
     
     "SETTINGS": {
         "HEADER": "📌 기타 설정",
-        "INFO": "Google Sheets 연동 상태 및 기타 옵션을 확인할 수 있습니다."
+        "INFO": "구글 시트 연동 상태 및 기타 시스템 옵션을 확인할 수 있습니다."
     },
     
     "MESSAGES": {
-        "GSHEET_SAVE_ERROR": "Google Sheets 저장 실패: "
+        "GSHEET_SAVE_ERROR": "구글 시트 저장 실패: "
     }
 }
 
@@ -134,6 +170,12 @@ def save_schedule_to_gsheets(df):
 # 세션 상태 초기화
 if "schedule" not in st.session_state:
     st.session_state.schedule = load_schedule_from_gsheets()
+
+if "personal_schedule" not in st.session_state:
+    st.session_state.personal_schedule = pd.DataFrame(columns=["날짜", "일정명", "소요시간", "메모"])
+
+if "routine" not in st.session_state:
+    st.session_state.routine = {"취침": 7, "식사": 3, "휴식": 2}
 
 if "selected_date" not in st.session_state:
     st.session_state.selected_date = date.today()
@@ -243,13 +285,16 @@ with left_col:
         for _, row in st.session_state.schedule.iterrows():
             schedule_dict[row["날짜"]] = row
 
+    personal_dict = {}
+    if not st.session_state.personal_schedule.empty:
+        for _, row in st.session_state.personal_schedule.iterrows():
+            personal_dict[row["날짜"]] = row["일정명"]
+
     cal = calendar.Calendar(firstweekday=6) # 일요일 시작
     month_days = cal.monthdatescalendar(year, month)
 
-    # 요일 헤더 HTML 동적 생성
     weekdays_html = "".join([f"<th>{day}</th>" for day in TEXTS["CALENDAR"]["WEEKDAYS"]])
 
-    # 라이트/다크모드 완벽 대응 CSS
     html_code = f"""
     <style>
         .simple-cal {{
@@ -288,6 +333,17 @@ with left_col:
             display: block;
             word-break: break-all;
         }}
+        .badge-personal {{
+            background-color: rgba(234, 67, 53, 0.15);
+            color: var(--text-color, inherit);
+            border: 1px solid rgba(234, 67, 53, 0.4);
+            padding: 2px 4px;
+            border-radius: 4px;
+            font-size: 11px;
+            margin-top: 2px;
+            display: block;
+            word-break: break-all;
+        }}
     </style>
     <table class="simple-cal"><thead><tr>
         {weekdays_html}
@@ -299,14 +355,18 @@ with left_col:
         for day_date in week:
             is_current_month = (day_date.month == month)
             data = schedule_dict.get(day_date, None)
+            personal_event = personal_dict.get(day_date, None)
             
             td_class = "" if is_current_month else 'class="other-m"'
             content_html = ""
             
-            if is_current_month and data is not None:
-                is_done = data.get("완료여부", False)
-                icon = "✅" if is_done else "📖"
-                content_html = f'<div class="badge">{icon} {data["목표 범위"]}</div>'
+            if is_current_month:
+                if data is not None:
+                    is_done = data.get("완료여부", False)
+                    icon = "✅" if is_done else "📖"
+                    content_html += f'<div class="badge">{icon} {data["목표 범위"]}</div>'
+                if personal_event:
+                    content_html += f'<div class="badge-personal">🛑 {personal_event}</div>'
                 
             html_code += f'<td {td_class}><b>{day_date.day}</b>{content_html}</td>'
         html_code += "</tr>"
@@ -318,10 +378,13 @@ with left_col:
 # [오른쪽 칼럼] 탭뷰
 # ------------------------------------------
 with right_col:
-    tab1, tab2, tab3 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         TEXTS["TABS"]["TAB1_NAME"], 
         TEXTS["TABS"]["TAB2_NAME"], 
-        TEXTS["TABS"]["TAB3_NAME"]
+        TEXTS["TABS"]["TAB3_NAME"], 
+        TEXTS["TABS"]["TAB4_NAME"], 
+        TEXTS["TABS"]["TAB5_NAME"], 
+        TEXTS["TABS"]["TAB6_NAME"]
     ])
     
     # --------------------------------------
@@ -401,9 +464,101 @@ with right_col:
             st.info(TEXTS["STUDY_RECORD"]["NO_SCHEDULE_INFO"])
 
     # --------------------------------------
-    # TAB 2: 일정 확인/수정
+    # TAB 2: 학습 일정 추가
     # --------------------------------------
     with tab2:
+        st.subheader(TEXTS["ADD_STUDY"]["HEADER"])
+        with st.form("add_study_form"):
+            subject_name = st.text_input(TEXTS["ADD_STUDY"]["SUBJECT_LABEL"], placeholder=TEXTS["ADD_STUDY"]["SUBJECT_PLACEHOLDER"])
+            unit_type = st.selectbox(TEXTS["ADD_STUDY"]["RANGE_TYPE_LABEL"], options=["페이지", "강 (인강)", "문제 (개)"])
+            total_amount = st.number_input(TEXTS["ADD_STUDY"]["TOTAL_AMOUNT_LABEL"], min_value=1, value=100)
+            
+            st_col1, st_col2 = st.columns(2)
+            start_date = st_col1.date_input(TEXTS["ADD_STUDY"]["START_DATE_LABEL"], value=date.today())
+            exam_date = st_col2.date_input(TEXTS["ADD_STUDY"]["EXAM_DATE_LABEL"], value=date.today() + timedelta(days=14))
+            
+            if st.form_submit_button(TEXTS["ADD_STUDY"]["CREATE_BTN"], use_container_width=True):
+                total_days = (exam_date - start_date).days + 1
+                if total_days <= 0:
+                    st.error("시험 날짜는 시작일 이후여야 합니다.")
+                else:
+                    daily_target = math.ceil(total_amount / total_days)
+                    new_rows = []
+                    accumulated = 0
+                    
+                    for i in range(total_days):
+                        current_day = start_date + timedelta(days=i)
+                        p_start = accumulated + 1
+                        p_end = min(accumulated + daily_target, total_amount)
+                        
+                        range_str = f"{subject_name} {p_start}~{p_end}{unit_type}" if p_start <= total_amount else "완료"
+                        amount = max(0, p_end - p_start + 1) if p_start <= total_amount else 0
+                        
+                        new_rows.append({
+                            "날짜": current_day,
+                            "목표 범위": range_str,
+                            "목표량": amount,
+                            "실제 완료량": 0,
+                            "완료여부": False
+                        })
+                        accumulated = p_end
+                    
+                    new_df = pd.DataFrame(new_rows)
+                    st.session_state.schedule = new_df
+                    save_schedule_to_gsheets(new_df)
+                    st.success(TEXTS["ADD_STUDY"]["SUCCESS"])
+                    st.rerun()
+
+    # --------------------------------------
+    # TAB 3: 개인 일정 추가
+    # --------------------------------------
+    with tab3:
+        st.subheader(TEXTS["ADD_PERSONAL"]["HEADER"])
+        with st.form("add_personal_form"):
+            p_title = st.text_input(TEXTS["ADD_PERSONAL"]["TITLE_LABEL"], placeholder=TEXTS["ADD_PERSONAL"]["TITLE_PLACEHOLDER"])
+            p_date = st.date_input(TEXTS["ADD_PERSONAL"]["DATE_LABEL"], value=date.today())
+            p_hours = st.number_input(TEXTS["ADD_PERSONAL"]["TIME_LABEL"], min_value=0.5, max_value=24.0, value=2.0, step=0.5)
+            p_memo = st.text_area(TEXTS["ADD_PERSONAL"]["MEMO_LABEL"])
+            
+            if st.form_submit_button(TEXTS["ADD_PERSONAL"]["ADD_BTN"], use_container_width=True):
+                new_event = pd.DataFrame([{
+                    "날짜": p_date,
+                    "일정명": p_title,
+                    "소요시간": p_hours,
+                    "메모": p_memo
+                }])
+                st.session_state.personal_schedule = pd.concat([st.session_state.personal_schedule, new_event], ignore_index=True)
+                st.success(TEXTS["ADD_PERSONAL"]["SUCCESS"])
+                st.rerun()
+                
+        if not st.session_state.personal_schedule.empty:
+            st.divider()
+            st.write("📋 **등록된 개인 일정 목록**")
+            st.dataframe(st.session_state.personal_schedule, use_container_width=True, hide_index=True)
+
+    # --------------------------------------
+    # TAB 4: 일상 루틴 설정
+    # --------------------------------------
+    with tab4:
+        st.subheader(TEXTS["ROUTINE"]["HEADER"])
+        
+        sleep_t = st.number_input(TEXTS["ROUTINE"]["SLEEP_LABEL"], min_value=0, max_value=24, value=st.session_state.routine["취침"])
+        meal_t = st.number_input(TEXTS["ROUTINE"]["MEAL_LABEL"], min_value=0, max_value=24, value=st.session_state.routine["식사"])
+        rest_t = st.number_input(TEXTS["ROUTINE"]["REST_LABEL"], min_value=0, max_value=24, value=st.session_state.routine["휴식"])
+        
+        total_routine = sleep_t + meal_t + rest_t
+        avail_study = max(0, 24 - total_routine)
+        
+        st.info(f"{TEXTS['ROUTINE']['CALC_INFO']} **{avail_study}시간** / 하루")
+        
+        if st.button(TEXTS["ROUTINE"]["SAVE_BTN"], use_container_width=True):
+            st.session_state.routine = {"취침": sleep_t, "식사": meal_t, "휴식": rest_t}
+            st.success(TEXTS["ROUTINE"]["SAVE_SUCCESS"])
+
+    # --------------------------------------
+    # TAB 5: 일정 확인/수정
+    # --------------------------------------
+    with tab5:
         st.subheader(TEXTS["SCHEDULE_EDIT"]["HEADER"])
         if st.session_state.schedule is not None and not st.session_state.schedule.empty:
             df = st.session_state.schedule
@@ -431,8 +586,8 @@ with right_col:
             st.info(TEXTS["SCHEDULE_EDIT"]["NO_DATA_INFO"])
 
     # --------------------------------------
-    # TAB 3: 기타 설정
+    # TAB 6: 기타 설정
     # --------------------------------------
-    with tab3:
+    with tab6:
         st.subheader(TEXTS["SETTINGS"]["HEADER"])
         st.write(TEXTS["SETTINGS"]["INFO"])
