@@ -62,12 +62,34 @@ def create_empty_subject():
     return {
         "name": "",
         "day": 1,
+        "has_tb": True,
         "tb_ranges": [{"start": 1, "end": 20}],
         "has_sub": False,
         "sub_ranges": [{"start": 1, "end": 10}],
         "has_sheets": False,
-        "sheets": [{"name": "학습지 1", "related_page": 5}]
+        "sheets": [{"name": "학습지 1", "has_page": False, "related_page": 5}]
     }
+
+# ==========================================
+# 학교 시간표 기본값 설정 함수
+# ==========================================
+def get_default_school_periods():
+    # 1~4교시 (08:20 ~ 12:10), 점심시간 후 5~8교시 (13:10 ~ 17:00)
+    periods = {}
+    
+    # 1교시 ~ 4교시
+    periods[1] = {"active": True, "start": time(8, 20), "end": time(9, 10)}
+    periods[2] = {"active": True, "start": time(9, 20), "end": time(10, 10)}
+    periods[3] = {"active": True, "start": time(10, 20), "end": time(11, 10)}
+    periods[4] = {"active": True, "start": time(11, 20), "end": time(12, 10)}
+    
+    # 5교시 ~ 8교시
+    periods[5] = {"active": True, "start": time(13, 10), "end": time(14, 0)}
+    periods[6] = {"active": True, "start": time(14, 10), "end": time(15, 0)}
+    periods[7] = {"active": True, "start": time(15, 10), "end": time(16, 0)}
+    periods[8] = {"active": True, "start": time(16, 10), "end": time(17, 0)}
+    
+    return periods
 
 # ==========================================
 # 세션 상태 초기화
@@ -83,7 +105,7 @@ if "routine" not in st.session_state or not isinstance(st.session_state.routine,
         "sleep": {"start": time(23, 0), "end": time(7, 0)},
         "meals": [
             {"name": "아침", "start": time(7, 30), "duration": 30},
-            {"name": "점심", "start": time(12, 30), "duration": 60},
+            {"name": "점심", "start": time(12, 10), "duration": 60},
             {"name": "저녁", "start": time(19, 0), "duration": 60}
         ]
     }
@@ -94,12 +116,9 @@ if "study_style" not in st.session_state or not isinstance(st.session_state.stud
         "max_pages_per_day": 10,
         "weekday_start_time": {day: time(18, 0) for day in ["월", "화", "수", "목", "금", "토", "일"]},
         "school": {
-            "go_time": time(8, 20),
+            "go_time": time(8, 0),
             "leave_time": time(16, 30),
-            "periods": {
-                p: {"active": True, "start": time(9 + (p-1)//2, 0 if p%2!=0 else 50), "end": time(9 + (p-1)//2, 45 if p%2!=0 else 35)}
-                for p in range(1, 9)
-            }
+            "periods": get_default_school_periods()
         }
     }
 
@@ -560,24 +579,30 @@ with right_col:
                     sub["name"] = c_name.text_input(f"과목명 #{idx+1}", value=s_name, key=f"sub_name_{idx}", placeholder="예: 국어, 수학")
                     sub["day"] = c_day.number_input(f"시험 몇일차", min_value=1, max_value=int(exam_duration), value=int(s_day), key=f"sub_day_{idx}")
                     
-                    st.caption("📘 **교과서 범위 설정**")
-                    tb_ranges = sub.get("tb_ranges", [{"start": 1, "end": 20}])
-                    for r_idx, r_val in enumerate(tb_ranges):
-                        rc1, rc2, rc3 = st.columns([2, 2, 1])
-                        r_val["start"] = rc1.number_input(f"시작 p", min_value=1, value=int(r_val["start"]), key=f"tb_s_{idx}_{r_idx}")
-                        r_val["end"] = rc2.number_input(f"종료 p", min_value=1, value=int(r_val["end"]), key=f"tb_e_{idx}_{r_idx}")
-                        if len(tb_ranges) > 1 and rc3.button("🗑️", key=f"del_tb_r_{idx}_{r_idx}"):
-                            tb_ranges.pop(r_idx)
+                    # --- 교과서 범위 선택 설정 ---
+                    has_tb = st.checkbox("교과서 포함", value=sub.get("has_tb", True), key=f"tb_chk_{idx}")
+                    sub["has_tb"] = has_tb
+                    if has_tb:
+                        st.caption("📘 **교과서 범위 설정**")
+                        tb_ranges = sub.get("tb_ranges", [{"start": 1, "end": 20}])
+                        for r_idx, r_val in enumerate(tb_ranges):
+                            rc1, rc2, rc3 = st.columns([2, 2, 1])
+                            r_val["start"] = rc1.number_input(f"시작 p", min_value=1, value=int(r_val["start"]), key=f"tb_s_{idx}_{r_idx}")
+                            r_val["end"] = rc2.number_input(f"종료 p", min_value=1, value=int(r_val["end"]), key=f"tb_e_{idx}_{r_idx}")
+                            if len(tb_ranges) > 1 and rc3.button("🗑️", key=f"del_tb_r_{idx}_{r_idx}"):
+                                tb_ranges.pop(r_idx)
+                                st.rerun()
+                        if st.button("➕ 교과서 범위 추가", key=f"add_tb_r_{idx}"):
+                            tb_ranges.append({"start": 1, "end": 10})
                             st.rerun()
-                    if st.button("➕ 교과서 범위 추가", key=f"add_tb_r_{idx}"):
-                        tb_ranges.append({"start": 1, "end": 10})
-                        st.rerun()
-                    sub["tb_ranges"] = tb_ranges
+                        sub["tb_ranges"] = tb_ranges
 
                     st.divider()
+                    # --- 부교재 범위 선택 설정 ---
                     has_sub = st.checkbox("부교재 포함", value=sub.get("has_sub", False), key=f"sub_chk_{idx}")
                     sub["has_sub"] = has_sub
                     if has_sub:
+                        st.caption("📗 **부교재 범위 설정**")
                         sub_ranges = sub.get("sub_ranges", [{"start": 1, "end": 10}])
                         for sr_idx, sr_val in enumerate(sub_ranges):
                             src1, src2, src3 = st.columns([2, 2, 1])
@@ -592,19 +617,27 @@ with right_col:
                         sub["sub_ranges"] = sub_ranges
 
                     st.divider()
+                    # --- 학습지 선택 및 연관 페이지 지정 ---
                     has_sheets = st.checkbox("학습지 포함", value=sub.get("has_sheets", False), key=f"sheet_chk_{idx}")
                     sub["has_sheets"] = has_sheets
                     if has_sheets:
-                        sheets = sub.get("sheets", [{"name": "학습지 1", "related_page": 5}])
+                        st.caption("📄 **학습지 설정 (연관 교과서 페이지 선택 가능)**")
+                        sheets = sub.get("sheets", [{"name": "학습지 1", "has_page": False, "related_page": 5}])
                         for sh_idx, sh_val in enumerate(sheets):
-                            shc1, shc2, shc3 = st.columns([2, 2, 1])
+                            shc1, shc2, shc3, shc4 = st.columns([2, 1.5, 1.5, 0.8])
                             sh_val["name"] = shc1.text_input("학습지 이름", value=sh_val["name"], key=f"sh_n_{idx}_{sh_idx}")
-                            sh_val["related_page"] = shc2.number_input("연관 교과서 페이지", min_value=1, value=int(sh_val["related_page"]), key=f"sh_p_{idx}_{sh_idx}")
-                            if len(sheets) > 1 and shc3.button("🗑️", key=f"del_sh_{idx}_{sh_idx}"):
+                            sh_val["has_page"] = shc2.checkbox("연관 페이지 지정", value=sh_val.get("has_page", False), key=f"sh_hp_{idx}_{sh_idx}")
+                            
+                            if sh_val["has_page"]:
+                                sh_val["related_page"] = shc3.number_input("교과서 p", min_value=1, value=int(sh_val.get("related_page", 5)), key=f"sh_p_{idx}_{sh_idx}")
+                            else:
+                                shc3.write("") # 빈 칸 처리
+                                
+                            if len(sheets) > 1 and shc4.button("🗑️", key=f"del_sh_{idx}_{sh_idx}"):
                                 sheets.pop(sh_idx)
                                 st.rerun()
                         if st.button("➕ 학습지 추가", key=f"add_sh_{idx}"):
-                            sheets.append({"name": f"학습지 {len(sheets)+1}", "related_page": 5})
+                            sheets.append({"name": f"학습지 {len(sheets)+1}", "has_page": False, "related_page": 5})
                             st.rerun()
                         sub["sheets"] = sheets
 
@@ -646,7 +679,7 @@ with right_col:
                                     "id": len(new_schedules) + len(day_subs) + 1,
                                     "날짜": prev_exam_date,
                                     "종류": "🔥 총정리",
-                                    "제목": f"[{s.get('name')}] 총정리 공부",
+                                    "제목": f"[{s}] 총정리 공부",
                                     "목표 범위": "전체 범위 핵심 복습",
                                     "목표량": "오후/저녁 집중 총정리",
                                     "완료여부": False,
@@ -673,32 +706,42 @@ with right_col:
                         for s in valid_subjects:
                             s_name = s.get("name")
                             tb_pages = []
-                            for tr in s.get("tb_ranges", []):
-                                tb_pages.extend(list(range(tr["start"], tr["end"] + 1)))
+                            if s.get("has_tb", True):
+                                for tr in s.get("tb_ranges", []):
+                                    tb_pages.extend(list(range(tr["start"], tr["end"] + 1)))
 
                             sheet_map = {}
                             if s.get("has_sheets"):
                                 for sh in s.get("sheets", []):
-                                    sheet_map.setdefault(sh["related_page"], []).append(sh["name"])
+                                    if sh.get("has_page", False):
+                                        sheet_map.setdefault(sh["related_page"], []).append(sh["name"])
 
                             p_idx = 0
-                            while p_idx < len(tb_pages):
-                                cur_p = tb_pages[p_idx]
-                                sheets_today = sheet_map.get(cur_p, [])
-                                actual_max_p = max(1, max_daily_pages - (len(sheets_today) * 2)) if sheets_today else max_daily_pages
-                                end_p_idx = min(len(tb_pages) - 1, p_idx + actual_max_p - 1)
-                                page_range_str = f"p.{tb_pages[p_idx]}~{tb_pages[end_p_idx]}"
-                                
-                                if sheets_today:
-                                    page_range_str += f" + 학습지({', '.join(sheets_today)})"
+                            if tb_pages:
+                                while p_idx < len(tb_pages):
+                                    cur_p = tb_pages[p_idx]
+                                    sheets_today = sheet_map.get(cur_p, [])
+                                    actual_max_p = max(1, max_daily_pages - (len(sheets_today) * 2)) if sheets_today else max_daily_pages
+                                    end_p_idx = min(len(tb_pages) - 1, p_idx + actual_max_p - 1)
+                                    page_range_str = f"p.{tb_pages[p_idx]}~{tb_pages[end_p_idx]}"
+                                    
+                                    if sheets_today:
+                                        page_range_str += f" + 학습지({', '.join(sheets_today)})"
 
+                                    chunk_queue.append({
+                                        "name": s_name,
+                                        "range": page_range_str,
+                                        "pages": (end_p_idx - p_idx + 1) + (len(sheets_today) * 2),
+                                        "repeat": r
+                                    })
+                                    p_idx = end_p_idx + 1
+                            else:
                                 chunk_queue.append({
                                     "name": s_name,
-                                    "range": page_range_str,
-                                    "pages": (end_p_idx - p_idx + 1) + (len(sheets_today) * 2),
+                                    "range": "지정 학습 범위",
+                                    "pages": max_daily_pages,
                                     "repeat": r
                                 })
-                                p_idx = end_p_idx + 1
 
                     total_days_needed = len(chunk_queue)
                     start_study_date = exam_start_date - timedelta(days=total_days_needed + 2)
@@ -711,7 +754,7 @@ with right_col:
                             "종류": f"📖 {chunk['repeat']}회독 학습",
                             "제목": f"[{chunk['name']}] 순행적 단원 공부",
                             "목표 범위": chunk["range"],
-                            "목표량": f"{chunk['pages']}p 분량 (학습지 반영)",
+                            "목표량": f"{chunk['pages']}p 분량",
                             "완료여부": False,
                             "메모": f"{chunk['repeat']}회독 순행 학습"
                         })
@@ -722,7 +765,7 @@ with right_col:
                     st.rerun()
 
         # ----------------------------------
-        # 2. 수행평가 (새로 추가)
+        # 2. 수행평가
         # ----------------------------------
         elif schedule_type == "수행평가":
             st.markdown("#### 📝 수행평가 등록 및 D-Day 스케줄 생성")
@@ -746,7 +789,6 @@ with right_col:
                     else:
                         new_perf_schedules = []
                         
-                        # 1) D-Day 수행평가 본 일정 추가
                         new_perf_schedules.append({
                             "id": len(st.session_state.schedule) + 1,
                             "날짜": eval_date,
@@ -758,7 +800,6 @@ with right_col:
                             "메모": f"평가 범위: {eval_range_text}"
                         })
                         
-                        # 2) D-준비일 ~ D-1 준비 일정 생성
                         for d_offset in range(prep_days, 0, -1):
                             prep_date = eval_date - timedelta(days=d_offset)
                             new_perf_schedules.append({
@@ -853,26 +894,28 @@ with right_col:
             )
 
         st.divider()
-        st.markdown("#### 🏫 월~금 학교 시간표 설정")
+        st.markdown("#### 🏫 월~금 학교 시간표 설정 (기본값 변경됨)")
         
         if "school" not in st.session_state.study_style:
             st.session_state.study_style["school"] = {
-                "go_time": time(8, 20),
+                "go_time": time(8, 0),
                 "leave_time": time(16, 30),
-                "periods": {p: {"active": True, "start": time(9, 0), "end": time(9, 45)} for p in range(1, 9)}
+                "periods": get_default_school_periods()
             }
 
         col_g, col_l = st.columns(2)
-        st.session_state.study_style["school"]["go_time"] = col_g.time_input("등교 시간", value=st.session_state.study_style["school"].get("go_time", time(8, 20)))
+        st.session_state.study_style["school"]["go_time"] = col_g.time_input("등교 시간", value=st.session_state.study_style["school"].get("go_time", time(8, 0)))
         st.session_state.study_style["school"]["leave_time"] = col_l.time_input("하교 시간", value=st.session_state.study_style["school"].get("leave_time", time(16, 30)))
 
         st.caption("1~8교시 세부 시간 및 교시 존재 여부")
+        default_periods = get_default_school_periods()
+        
         for p in range(1, 9):
-            p_data = st.session_state.study_style["school"]["periods"].get(p, {"active": True, "start": time(9, 0), "end": time(9, 45)})
+            p_data = st.session_state.study_style["school"]["periods"].get(p, default_periods[p])
             p_col1, p_col2, p_col3 = st.columns([1.5, 2, 2])
             p_data["active"] = p_col1.checkbox(f"{p}교시 존재", value=p_data.get("active", True), key=f"p_act_{p}")
-            p_data["start"] = p_col2.time_input(f"{p}교시 시작", value=p_data.get("start", time(9, 0)), key=f"p_st_{p}")
-            p_data["end"] = p_col3.time_input(f"{p}교시 종료", value=p_data.get("end", time(9, 45)), key=f"p_en_{p}")
+            p_data["start"] = p_col2.time_input(f"{p}교시 시작", value=p_data.get("start", default_periods[p]["start"]), key=f"p_st_{p}")
+            p_data["end"] = p_col3.time_input(f"{p}교시 종료", value=p_data.get("end", default_periods[p]["end"]), key=f"p_en_{p}")
             st.session_state.study_style["school"]["periods"][p] = p_data
 
         if st.button("💾 학습 방식 및 시간표 저장", use_container_width=True):
@@ -889,7 +932,7 @@ with right_col:
                 "sleep": {"start": time(23, 0), "end": time(7, 0)},
                 "meals": [
                     {"name": "아침", "start": time(7, 30), "duration": 30},
-                    {"name": "점심", "start": time(12, 30), "duration": 60},
+                    {"name": "점심", "start": time(12, 10), "duration": 60},
                     {"name": "저녁", "start": time(19, 0), "duration": 60}
                 ]
             }
@@ -905,7 +948,7 @@ with right_col:
         st.markdown("#### 🍽️ 식사 시간 동적 설정")
         
         if st.button("➕ 식사 항목 추가"):
-            st.session_state.routine["meals"].append({"name": f"식사 {len(st.session_state.routine['meals'])+1}", "start": time(12, 0), "duration": 30})
+            st.session_state.routine["meals"].append({"name": f"식사 {len(st.session_state.routine['meals'])+1}", "start": time(12, 10), "duration": 60})
             st.rerun()
 
         del_idx = None
@@ -913,8 +956,8 @@ with right_col:
         for m_idx, meal in enumerate(meals_list):
             mc1, mc2, mc3, mc4 = st.columns([2, 2, 2, 1])
             meal["name"] = mc1.text_input(f"식사 이름 #{m_idx+1}", value=meal.get("name", ""), key=f"meal_n_{m_idx}")
-            meal["start"] = mc2.time_input(f"시작 시간 #{m_idx+1}", value=meal.get("start", time(12, 0)), key=f"meal_s_{m_idx}")
-            meal["duration"] = mc3.number_input(f"소요 시간(분) #{m_idx+1}", min_value=10, max_value=180, value=int(meal.get("duration", 30)), key=f"meal_d_{m_idx}")
+            meal["start"] = mc2.time_input(f"시작 시간 #{m_idx+1}", value=meal.get("start", time(12, 10)), key=f"meal_s_{m_idx}")
+            meal["duration"] = mc3.number_input(f"소요 시간(분) #{m_idx+1}", min_value=10, max_value=180, value=int(meal.get("duration", 60)), key=f"meal_d_{m_idx}")
             
             if len(meals_list) > 1:
                 if mc4.button("🗑️", key=f"del_meal_{m_idx}"):
