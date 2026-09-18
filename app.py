@@ -9,9 +9,6 @@ from google.oauth2.service_account import Credentials
 # 페이지 기본 설정
 st.set_page_config(page_title="스마트 시험 D-Day 플래너", layout="wide")
 
-st.title("📅 스마트 시험 D-Day & 공부 스케줄러")
-st.caption("시험 날짜와 공부 범위를 설정하고, 달성도에 따라 스케줄을 자동으로 재조정하세요. (Google Sheets 연동)")
-
 # --- Google Sheets 클라우드 연결 (gspread 활용) ---
 @st.cache_resource
 def get_gsheet_client():
@@ -76,8 +73,87 @@ if "schedule" not in st.session_state:
 if "selected_date" not in st.session_state:
     st.session_state.selected_date = date.today()
 
+# --- 사이드바: 내보내기 & 설정 ---
+st.sidebar.title("⚙️ 설정 및 도구")
+
+# 1. 스케줄 데이터 내보내기
+st.sidebar.subheader("📤 스케줄 데이터 내보내기")
+if st.session_state.schedule is not None and not st.session_state.schedule.empty:
+    export_df = st.session_state.schedule.copy()
+    export_df["날짜"] = export_df["날짜"].astype(str)
+    
+    csv_data = export_df.to_csv(index=False).encode('utf-8-sig')
+    st.sidebar.download_button(
+        label="📥 CSV 파일로 내보내기",
+        data=csv_data,
+        file_name=f"study_schedule_{date.today()}.csv",
+        mime="text/csv",
+        use_container_width=True
+    )
+    
+    json_data = export_df.to_json(orient="records", force_ascii=False)
+    st.sidebar.download_button(
+        label="📥 JSON 파일로 내보내기",
+        data=json_data,
+        file_name=f"study_schedule_{date.today()}.json",
+        mime="application/json",
+        use_container_width=True
+    )
+else:
+    st.sidebar.info("내보낼 스케줄 데이터가 없습니다.")
+
+st.sidebar.divider()
+
+# 2. 개인화 스타일 설정
+st.sidebar.subheader("🎨 화면 스타일 설정")
+accent_color = st.sidebar.selectbox(
+    "액센트 테마 컬러",
+    ["클래식 블루 (#1a73e8)", "에메랄드 그린 (#28a745)", "로열 퍼플 (#6f42c1)", "웜 오렌지 (#fd7e14)"],
+    index=0
+)
+color_map = {
+    "클래식 블루 (#1a73e8)": "#1a73e8",
+    "에메랄드 그린 (#28a745)": "#28a745",
+    "로열 퍼플 (#6f42c1)": "#6f42c1",
+    "웜 오렌지 (#fd7e14)": "#fd7e14"
+}
+selected_accent = color_map[accent_color]
+
+theme_mode = st.sidebar.radio("모드 설정", ["라이트 모드", "다크 모드"], index=0)
+
+# --- 커스텀 CSS 적용 (달력 셀 높이 및 반응형 디자인 처리) ---
+st.markdown(f"""
+    <style>
+        /* 달력 버튼 최소 높이 및 좌측 상단 정렬 스타일 */
+        .stButton > button {{
+            min-height: 85px !important;
+            height: 100% !important;
+            display: flex !important;
+            flex-direction: column !important;
+            justify-content: flex-start !important;
+            align-items: flex-start !important;
+            text-align: left !important;
+            padding: 6px 8px !important;
+            border-radius: 8px !important;
+            white-space: pre-line !important;
+            word-break: break-all !important;
+        }}
+        
+        /* 선택된 날짜 하이라이트 (연파랑 스타일) */
+        .selected-day-btn > button {{
+            background-color: #e8f0fe !important;
+            border: 2px solid {selected_accent} !important;
+            color: #1a73e8 !important;
+            font-weight: bold !important;
+        }}
+    </style>
+""", unsafe_allow_html=True)
+
+st.title("📅 스마트 시험 D-Day & 공부 스케줄러")
+st.caption("시험 날짜와 공부 범위를 설정하고, 달성도에 따라 스케줄을 자동으로 재조정하세요.")
+
 # --- 메인 레이아웃 (좌: 커스텀 달력 / 우: 탭뷰) ---
-left_col, right_col = st.columns([1, 1], gap="large")
+left_col, right_col = st.columns([1.1, 0.9], gap="large")
 
 # ==========================================
 # [왼쪽 칼럼] 커스텀 달력 및 날짜 이동 컨트롤
@@ -85,21 +161,19 @@ left_col, right_col = st.columns([1, 1], gap="large")
 with left_col:
     st.subheader("🗓️ 달력")
     
-    # 상단 컨트롤: 이전 달 / 통합 날짜 선택기 (키보드 직접 입력 가능) / 다음 달
+    # 상단 컨트롤: 이전 달 / 통합 날짜 선택기 / 다음 달
     nav_col1, nav_col2, nav_col3 = st.columns([1, 4, 1])
     
     selected_dt = st.session_state.selected_date
     
     with nav_col1:
         if st.button("◀", key="prev_month_btn", use_container_width=True):
-            # 이전 달의 1일로 이동
             first_curr = selected_dt.replace(day=1)
             prev_month_last = first_curr - timedelta(days=1)
             st.session_state.selected_date = prev_month_last.replace(day=min(selected_dt.day, prev_month_last.day))
             st.rerun()
             
     with nav_col2:
-        # 통합된 날짜 입력기 (키보드 입력 가능, 달력 아이콘 및 선택 지원)
         picked_date = st.date_input(
             "선택 날짜",
             value=selected_dt,
@@ -112,7 +186,6 @@ with left_col:
 
     with nav_col3:
         if st.button("▶", key="next_month_btn", use_container_width=True):
-            # 다음 달로 이동
             next_month = (selected_dt.replace(day=28) + timedelta(days=5)).replace(day=1)
             st.session_state.selected_date = next_month.replace(day=min(selected_dt.day, 28))
             st.rerun()
@@ -121,7 +194,6 @@ with left_col:
     year = selected_dt.year
     month = selected_dt.month
     
-    # 스케줄 데이터를 날짜별 매핑
     schedule_dict = {}
     if st.session_state.schedule is not None and not st.session_state.schedule.empty:
         for _, row in st.session_state.schedule.iterrows():
@@ -131,9 +203,8 @@ with left_col:
     days_header = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
     hdr_cols = st.columns(7)
     for idx, day_name in enumerate(days_header):
-        hdr_cols[idx].markdown(f"**<div style='text-align: center;'>{day_name}</div>**", unsafe_allow_html=True)
+        hdr_cols[idx].markdown(f"**<div style='text-align: center; color: gray;'>{day_name}</div>**", unsafe_allow_html=True)
 
-    # 해당 월의 달력 그리드 계산 (일요일 시작)
     cal = calendar.Calendar(firstweekday=6)
     month_days = cal.monthdatescalendar(year, month)
 
@@ -143,10 +214,9 @@ with left_col:
             is_current_month = (day_date.month == month)
             is_selected = (day_date == selected_dt)
             
-            # 날짜에 해당하는 공부 데이터 확인
             data = schedule_dict.get(day_date, None)
             
-            # 텍스트 및 레이블 구성
+            # 날짜 숫자는 왼쪽 상단에 표시하고, 아래에 진행도/아이콘 표시
             day_num_str = str(day_date.day)
             label = day_num_str
             
@@ -155,23 +225,24 @@ with left_col:
                 icon = "✅" if is_done else "📖"
                 label = f"{day_num_str}\n{icon} {data['목표 범위']}"
 
-            # 버튼 타입 (선택된 날짜인 경우 primary 강조)
-            btn_type = "primary" if is_selected else "secondary"
-            
-            # 이전/다음 달 날짜 연하게 표시 처리용 키
             btn_key = f"cal_btn_{day_date.strftime('%Y_%m_%d')}"
             
             with week_cols[idx]:
-                # 날짜 버튼 클릭 시 해당 날짜로 선택되며 상단 입력창에도 즉시 연동
+                # 선택된 날짜에 연파랑 CSS 클래스 조건부 적용
+                if is_selected:
+                    st.markdown('<div class="selected-day-btn">', unsafe_allow_html=True)
+                
                 if st.button(
                     label,
                     key=btn_key,
                     use_container_width=True,
-                    type=btn_type,
-                    disabled=not is_current_month # 다른 달 날짜 비활성화 (필요 시 활성화 가능)
+                    disabled=not is_current_month
                 ):
                     st.session_state.selected_date = day_date
                     st.rerun()
+                
+                if is_selected:
+                    st.markdown('</div>', unsafe_allow_html=True)
 
 # ==========================================
 # [오른쪽 칼럼] 탭뷰 (1, 2, 3)
@@ -262,7 +333,7 @@ with right_col:
     # --------------------------------------
     with tab2:
         st.subheader("📌 2번 영역")
-        st.write("사이드바에 있던 설정을 이곳으로 옮기거나 추가 기능을 구성할 수 있습니다.")
+        st.write("사이드바에 있던 시험 설정 메뉴나 분석 그래프 등을 이곳에 배치할 수 있습니다.")
 
     # --------------------------------------
     # TAB 3: 임시 영역
