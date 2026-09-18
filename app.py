@@ -57,7 +57,7 @@ TEXTS = {
 # 페이지 기본 설정
 st.set_page_config(page_title=TEXTS["APP_TITLE"].replace("📅 ", ""), layout="wide")
 
-# Google Sheets 연결 생략 가능 (필요시 작동하도록 구성을 유지)
+# Google Sheets 연결 생략 가능
 @st.cache_resource
 def get_gsheet_client():
     try:
@@ -121,19 +121,32 @@ if "study_style" not in st.session_state:
 if "selected_date" not in st.session_state:
     st.session_state.selected_date = date.today()
 
+# 기본 과목 데이터 정의
+default_subjects = [
+    {
+        "name": "국어", "day": 1,
+        "tb_start": 1, "tb_end": 40,
+        "has_sub": True, "sub_start": 1, "sub_end": 20
+    },
+    {
+        "name": "수학", "day": 1,
+        "tb_start": 1, "tb_end": 50,
+        "has_sub": False, "sub_start": 1, "sub_end": 20
+    }
+]
+
 if "exam_subjects" not in st.session_state:
-    st.session_state.exam_subjects = [
-        {
-            "name": "국어", "day": 1,
-            "tb_start": 1, "tb_end": 40,
-            "has_sub": True, "sub_start": 1, "sub_end": 20
-        },
-        {
-            "name": "수학", "day": 1,
-            "tb_start": 1, "tb_end": 50,
-            "has_sub": False, "sub_start": 1, "sub_end": 20
-        }
-    ]
+    st.session_state.exam_subjects = default_subjects
+else:
+    # 기존 세션 데이터에 새로운 키가 없을 경우 보장해주는 안전장치
+    for sub in st.session_state.exam_subjects:
+        sub.setdefault("name", "")
+        sub.setdefault("day", 1)
+        sub.setdefault("tb_start", 1)
+        sub.setdefault("tb_end", 30)
+        sub.setdefault("has_sub", False)
+        sub.setdefault("sub_start", 1)
+        sub.setdefault("sub_end", 10)
 
 if "editing_event" not in st.session_state:
     st.session_state.editing_event = None
@@ -231,7 +244,6 @@ with left_col:
             st.session_state.selected_date = next_month.replace(day=min(selected_dt.day, 28))
             st.rerun()
 
-    # 선택된 날짜의 상세 일정 출력 및 수정 기능
     st.markdown(f"#### 📅 {selected_dt.strftime('%Y년 %m월 %d일')} 일정 상세")
     
     day_personals = st.session_state.personal_schedule[st.session_state.personal_schedule["날짜"] == selected_dt]
@@ -240,7 +252,6 @@ with left_col:
     if day_personals.empty and day_studies.empty:
         st.info("해당 날짜에 등록된 일정이 없습니다.")
     else:
-        # 1. 개인 일정 목록
         for idx, row in day_personals.iterrows():
             with st.expander(f"🛑 [개인] {row['이름']} ({row['시작 시간']} ~ {row['종료 시간']})"):
                 st.write(f"**이동시간:** {row['이동 시간']} | **태그:** {row['태그']}")
@@ -254,7 +265,6 @@ with left_col:
                     st.success("삭제되었습니다.")
                     st.rerun()
                     
-        # 2. 학습 일정 목록
         for idx, row in day_studies.iterrows():
             is_exam = "⭐" in str(row["종류"]) or "시험" in str(row["종류"])
             icon = "⭐" if is_exam else ("✅" if row["완료여부"] else "📖")
@@ -271,7 +281,6 @@ with left_col:
                     st.success("삭제되었습니다.")
                     st.rerun()
 
-    # 일정 수정 모달/폼
     if st.session_state.editing_event:
         st.divider()
         st.markdown("### ✏️ 선택 일정 수정")
@@ -279,9 +288,9 @@ with left_col:
         
         if ev["type"] == "personal":
             with st.form("edit_personal_form"):
-                e_name = st.text_input("일정 이름", value=ev["data"]["이름"])
-                e_date = st.date_input("날짜", value=ev["data"]["날짜"])
-                e_memo = st.text_area("메모", value=ev["data"]["메모"])
+                e_name = st.text_input("일정 이름", value=ev["data"].get("이름", ""))
+                e_date = st.date_input("날짜", value=ev["data"].get("날짜", date.today()))
+                e_memo = st.text_area("메모", value=ev["data"].get("메모", ""))
                 
                 if st.form_submit_button("💾 수정사항 저장"):
                     st.session_state.personal_schedule.loc[ev["index"], ["이름", "날짜", "메모"]] = [e_name, e_date, e_memo]
@@ -290,10 +299,10 @@ with left_col:
                     st.rerun()
         else:
             with st.form("edit_study_form"):
-                e_title = st.text_input("학습 제목", value=ev["data"]["제목"])
-                e_range = st.text_input("목표 범위", value=ev["data"]["목표 범위"])
-                e_amount = st.text_input("목표량", value=ev["data"]["목표량"])
-                e_done = st.checkbox("완료 여부", value=ev["data"]["완료여부"])
+                e_title = st.text_input("학습 제목", value=ev["data"].get("제목", ""))
+                e_range = st.text_input("목표 범위", value=ev["data"].get("목표 범위", ""))
+                e_amount = st.text_input("목표량", value=ev["data"].get("목표량", ""))
+                e_done = st.checkbox("완료 여부", value=ev["data"].get("완료여부", False))
                 
                 if st.form_submit_button("💾 수정사항 저장"):
                     st.session_state.schedule.loc[ev["index"], ["제목", "목표 범위", "목표량", "완료여부"]] = [e_title, e_range, e_amount, e_done]
@@ -307,7 +316,7 @@ with left_col:
             st.rerun()
 
 # ------------------------------------------
-# [오른쪽 칼럼] 탭 관리 (4개 탭)
+# [오른쪽 칼럼] 탭 관리
 # ------------------------------------------
 with right_col:
     tab1, tab2, tab3, tab4 = st.tabs([
@@ -317,9 +326,6 @@ with right_col:
         TEXTS["TABS"]["TAB4_NAME"]
     ])
     
-    # --------------------------------------
-    # TAB 1: 개인 일정 추가
-    # --------------------------------------
     with tab1:
         st.subheader("🗓️ 개인 일정 추가")
         with st.form("add_personal_form"):
@@ -350,9 +356,6 @@ with right_col:
                 st.success("개인 일정이 등록되었습니다!")
                 st.rerun()
 
-    # --------------------------------------
-    # TAB 2: 정기고사 및 학습 등록
-    # --------------------------------------
     with tab2:
         st.subheader("📚 정기고사 & 학습 일정 세부 생성")
         
@@ -375,22 +378,32 @@ with right_col:
             head_col2.button("➕ 과목 추가", on_click=add_subject, use_container_width=True)
 
             for idx, sub in enumerate(st.session_state.exam_subjects):
-                with st.expander(f"📌 과목 {idx + 1} : {sub['name'] if sub['name'] else '미입력'}", expanded=True):
+                # .get()을 사용하여 KeyError 예방
+                s_name = sub.get("name", "")
+                s_day = sub.get("day", 1)
+                s_tb_start = sub.get("tb_start", 1)
+                s_tb_end = sub.get("tb_end", 30)
+                s_has_sub = sub.get("has_sub", False)
+                s_sub_start = sub.get("sub_start", 1)
+                s_sub_end = sub.get("sub_end", 10)
+
+                with st.expander(f"📌 과목 {idx + 1} : {s_name if s_name else '미입력'}", expanded=True):
                     c_name, c_day = st.columns([2, 1])
-                    sub["name"] = c_name.text_input(f"과목명 #{idx+1}", value=sub["name"], key=f"sub_name_{idx}")
-                    sub["day"] = c_day.number_input(f"시험 몇일차", min_value=1, max_value=exam_duration, value=sub["day"], key=f"sub_day_{idx}")
+                    sub["name"] = c_name.text_input(f"과목명 #{idx+1}", value=s_name, key=f"sub_name_{idx}")
+                    sub["day"] = c_day.number_input(f"시험 몇일차", min_value=1, max_value=int(exam_duration), value=int(s_day), key=f"sub_day_{idx}")
                     
                     st.caption("📘 **교과서 범위 (페이지)**")
                     tb_c1, tb_c2 = st.columns(2)
-                    sub["tb_start"] = tb_c1.number_input("시작", min_value=1, value=sub["tb_start"], key=f"tb_s_{idx}")
-                    sub["tb_end"] = tb_c2.number_input("종료", min_value=1, value=sub["tb_end"], key=f"tb_e_{idx}")
+                    sub["tb_start"] = tb_c1.number_input("시작", min_value=1, value=int(s_tb_start), key=f"tb_s_{idx}")
+                    sub["tb_end"] = tb_c2.number_input("종료", min_value=1, value=int(s_tb_end), key=f"tb_e_{idx}")
 
-                    has_sub = st.checkbox("부교재 포함", value=sub["has_sub"], key=f"sub_chk_{idx}")
+                    has_sub = st.checkbox("부교재 포함", value=s_has_sub, key=f"sub_chk_{idx}")
                     sub["has_sub"] = has_sub
                     if has_sub:
                         sub_c1, sub_c2 = st.columns(2)
-                        sub["sub_start"] = sub_c1.number_input("부교재 시작", min_value=1, value=sub["sub_start"], key=f"sub_s_{idx}")
-                        sub["sub_end"] = sub_c2.number_input("부교재 종료", min_value=1, value=sub["sub_e_{idx}"])
+                        sub["sub_start"] = sub_c1.number_input("부교재 시작", min_value=1, value=int(s_sub_start), key=f"sub_s_{idx}")
+                        # 수정 완료: f-string 적용 (sub_e_{idx})
+                        sub["sub_end"] = sub_c2.number_input("부교재 종료", min_value=1, value=int(s_sub_end), key=f"sub_e_{idx}")
 
                     if len(st.session_state.exam_subjects) > 1 and st.button(f"🗑️ 과목 {idx+1} 삭제", key=f"del_sub_{idx}"):
                         remove_subject(idx)
@@ -402,10 +415,10 @@ with right_col:
                 new_schedules = []
                 
                 # 1. 시험 당일 별표(⭐) 등록
-                for day_idx in range(exam_duration):
+                for day_idx in range(int(exam_duration)):
                     cur_exam_date = exam_start_date + timedelta(days=day_idx)
                     day_num = day_idx + 1
-                    day_subs = [s["name"] for s in st.session_state.exam_subjects if s["day"] == day_num]
+                    day_subs = [s.get("name", "") for s in st.session_state.exam_subjects if s.get("day", 1) == day_num]
                     sub_str = ", ".join(day_subs) if day_subs else "시험"
                     
                     new_schedules.append({
@@ -419,49 +432,47 @@ with right_col:
                         "메모": f"{day_num}일차 시험 과목: {sub_str}"
                     })
 
-                # 2. 직전 대비 (1회독 차) - 시험 전날 역순 배치
-                # 고사 N일차 시험 직전 날에는 N일차 과목을 공부
-                for day_num in range(1, exam_duration + 1):
-                    prep_date = exam_start_date - timedelta(days=(exam_duration - day_num + 1))
-                    day_subs = [s for s in st.session_state.exam_subjects if s["day"] == day_num]
+                # 2. 직전 대비 (1회독 차)
+                for day_num in range(1, int(exam_duration) + 1):
+                    prep_date = exam_start_date - timedelta(days=(int(exam_duration) - day_num + 1))
+                    day_subs = [s for s in st.session_state.exam_subjects if s.get("day", 1) == day_num]
                     
                     for s in day_subs:
-                        tb_pages = s["tb_end"] - s["tb_start"] + 1
-                        sub_pages = (s["sub_end"] - s["sub_start"] + 1) if s["has_sub"] else 0
+                        tb_pages = s.get("tb_end", 0) - s.get("tb_start", 0) + 1
+                        sub_pages = (s.get("sub_end", 0) - s.get("sub_start", 0) + 1) if s.get("has_sub", False) else 0
                         
                         new_schedules.append({
                             "id": len(new_schedules) + 1,
                             "날짜": prep_date,
                             "종류": "🔥 직전대비",
-                            "제목": f"[{s['name']}] 직전 총복습",
-                            "목표 범위": f"교과서 p.{s['tb_start']}~{s['tb_end']}" + (f", 부교재 p.{s['sub_start']}~{s['sub_end']}" if s["has_sub"] else ""),
+                            "제목": f"[{s.get('name', '')}] 직전 총복습",
+                            "목표 범위": f"교과서 p.{s.get('tb_start')}~{s.get('tb_end')}" + (f", 부교재 p.{s.get('sub_start')}~{s.get('sub_end')}" if s.get("has_sub") else ""),
                             "목표량": f"전체 범위 ({tb_pages + sub_pages}p) 1회독",
                             "완료여부": False,
                             "메모": f"{day_num}일차 시험 대비 최종 점검"
                         })
 
-                # 3. N회독 기본 배치 (D-4부터 역순 교대 분배)
-                max_daily_subs = st.session_state.study_style["max_subjects_per_day"]
+                # 3. N회독 기본 배치
                 max_daily_pages = st.session_state.study_style["max_pages_per_day"]
-                
-                start_prep_date = exam_start_date - timedelta(days=exam_duration + 1)
+                start_prep_date = exam_start_date - timedelta(days=int(exam_duration) + 1)
                 curr_date = start_prep_date
                 
-                # 회독 수만큼 반복 스케줄 생성
-                for r in range(exam_repeat - 1, 0, -1):
+                for r in range(int(exam_repeat) - 1, 0, -1):
                     for s in st.session_state.exam_subjects:
-                        tb_pages = s["tb_end"] - s["tb_start"] + 1
-                        days_needed = math.ceil(tb_pages / max_daily_pages)
+                        tb_start = s.get("tb_start", 1)
+                        tb_end = s.get("tb_end", 1)
+                        tb_pages = tb_end - tb_start + 1
+                        days_needed = math.ceil(tb_pages / max_daily_pages) if max_daily_pages > 0 else 1
                         
                         for p in range(days_needed):
-                            p_start = s["tb_start"] + p * max_daily_pages
-                            p_end = min(s["tb_end"], p_start + max_daily_pages - 1)
+                            p_start = tb_start + p * max_daily_pages
+                            p_end = min(tb_end, p_start + max_daily_pages - 1)
                             
                             new_schedules.append({
                                 "id": len(new_schedules) + 1,
                                 "날짜": curr_date,
                                 "종류": f"📖 {r+1}회독 학습",
-                                "제목": f"[{s['name']}] N회독 분량 학습",
+                                "제목": f"[{s.get('name', '')}] N회독 분량 학습",
                                 "목표 범위": f"교과서 p.{p_start}~{p_end}",
                                 "목표량": f"{p_end - p_start + 1} 페이지 공부",
                                 "완료여부": False,
@@ -469,7 +480,6 @@ with right_col:
                             })
                             curr_date -= timedelta(days=1)
 
-                # 기존 스케줄 데이터에 합치기
                 new_df = pd.DataFrame(new_schedules)
                 st.session_state.schedule = pd.concat([st.session_state.schedule, new_df], ignore_index=True)
                 save_schedule_to_gsheets(st.session_state.schedule)
@@ -477,9 +487,6 @@ with right_col:
                 st.success("시험 일정 및 자동 학습 스케줄이 성공적으로 생성되었습니다!")
                 st.rerun()
 
-    # --------------------------------------
-    # TAB 3: 학습 방식 설정
-    # --------------------------------------
     with tab3:
         st.subheader("⚙️ 학습 방식 설정")
         st.caption("개인의 학습 가능 스피드와 목표 수준을 설정합니다.")
@@ -492,9 +499,6 @@ with right_col:
             st.session_state.study_style["max_pages_per_day"] = m_pages
             st.success("학습 방식 설정이 저장되었습니다!")
 
-    # --------------------------------------
-    # TAB 4: 일상 루틴 설정
-    # --------------------------------------
     with tab4:
         st.subheader(TEXTS["ROUTINE"]["HEADER"])
         
