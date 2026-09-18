@@ -72,7 +72,7 @@ def save_schedule_to_gsheets(df):
         st.error(f"{TEXTS['MESSAGES']['GSHEET_SAVE_ERROR']}{e}")
 
 # ==========================================
-# 세션 상태 초기화
+# 세션 상태 초기화 (안전 장치 강화)
 # ==========================================
 if "schedule" not in st.session_state or st.session_state.schedule is None:
     st.session_state.schedule = pd.DataFrame(
@@ -84,8 +84,8 @@ if "personal_schedule" not in st.session_state:
         columns=["id", "날짜", "시작 시간", "종료 시간", "이름", "이동 시간", "태그", "메모"]
     )
 
-# 2. 일상 루틴 초기 상태
-if "routine" not in st.session_state:
+# 2. 일상 루틴 초기화
+if "routine" not in st.session_state or not isinstance(st.session_state.routine, dict):
     st.session_state.routine = {
         "sleep": {"start": time(23, 0), "end": time(7, 0)},
         "meals": [
@@ -95,10 +95,10 @@ if "routine" not in st.session_state:
         ]
     }
 
-# 3. 학습 방식 & 주간/학교 시간표 초기 상태
-if "study_style" not in st.session_state:
+# 3. 학습 방식 & 주간/학교 시간표 초기화
+if "study_style" not in st.session_state or not isinstance(st.session_state.study_style, dict):
     st.session_state.study_style = {
-        "target_hours": 4.0,  # 하루 목표 공부 시간 (시간)
+        "target_hours": 4.0,
         "max_pages_per_day": 5,
         "weekday_start_time": {day: time(18, 0) for day in ["월", "화", "수", "목", "금", "토", "일"]},
         "school": {
@@ -344,7 +344,7 @@ with right_col:
     ])
 
     # --------------------------------------
-    # TAB 1: 개인 일정 추가 (반복 기능)
+    # TAB 1: 개인 일정 추가
     # --------------------------------------
     with tab1:
         st.subheader("🗓️ 개인 일정 추가")
@@ -396,7 +396,7 @@ with right_col:
                         "메모": p_memo
                     })
                     
-                    cur_dt += timedelta(days=7) # 주간 반복 기본 적용
+                    cur_dt += timedelta(days=7)
                     idx_step += 1
                     
                 st.session_state.personal_schedule = pd.concat([st.session_state.personal_schedule, pd.DataFrame(new_events)], ignore_index=True)
@@ -404,7 +404,7 @@ with right_col:
                 st.rerun()
 
     # --------------------------------------
-    # TAB 2: 정기고사/학습 등록 (개선된 D-Day 알고리즘)
+    # TAB 2: 정기고사/학습 등록
     # --------------------------------------
     with tab2:
         st.subheader("📚 정기고사 & 학습 일정 세부 생성")
@@ -467,7 +467,6 @@ with right_col:
                 else:
                     new_schedules = []
 
-                    # 1. 시험 당일 등록 (⭐)
                     for day_idx in range(int(exam_duration)):
                         cur_exam_date = exam_start_date + timedelta(days=day_idx)
                         day_num = day_idx + 1
@@ -485,7 +484,6 @@ with right_col:
                             "메모": f"{day_num}일차 시험 과목: {sub_str}"
                         })
 
-                        # 요구사항 4: 2일차 이상일 경우, N-1일차 시험 끝나고 오후에 N일차 과목 공부 배치
                         if day_num > 1:
                             prev_exam_date = exam_start_date + timedelta(days=day_idx - 1)
                             for s in day_subs:
@@ -495,12 +493,11 @@ with right_col:
                                     "종류": "🔥 시험 당일 오후 대비",
                                     "제목": f"[{s.get('name')}] {day_num}일차 시험 직전 점검",
                                     "목표 범위": f"교과서 p.{s.get('tb_start')}~{s.get('tb_end')}",
-                                    "목표량": f"오후/저녁 집중 복습",
+                                    "목표량": "오후/저녁 집중 복습",
                                     "완료여부": False,
                                     "메모": f"{day_num-1}일차 시험 종료 후 {day_num}일차 과목 대비 공부"
                                 })
 
-                    # 2. 직전 대비 (1일차 과목 -> D-1 전날 집중)
                     day1_subs = [s for s in valid_subjects if s.get("day") == 1]
                     for s in day1_subs:
                         new_schedules.append({
@@ -514,8 +511,7 @@ with right_col:
                             "메모": "1일차 시험 전날 집중 복습"
                         })
 
-                    # 3. N회독 분량 공부 스케줄 생성
-                    max_pages = max(1, st.session_state.study_style["max_pages_per_day"])
+                    max_pages = max(1, int(st.session_state.study_style.get("max_pages_per_day", 5)))
                     study_chunks = []
                     
                     for r in range(int(exam_repeat) - 1, 0, -1):
@@ -544,7 +540,7 @@ with right_col:
                             "목표 범위": chunk["range"],
                             "목표량": f"{chunk['pages']} 페이지 학습",
                             "완료여부": False,
-                            "메모": f"{chunk['repeat']}회독 충돌 피하기 자동 이월 스케줄링"
+                            "메모": f"{chunk['repeat']}회독 계획에 따라 자동 생성됨"
                         })
                         curr_date -= timedelta(days=1)
 
@@ -552,70 +548,123 @@ with right_col:
                     st.session_state.schedule = pd.concat([st.session_state.schedule, new_df], ignore_index=True)
                     save_schedule_to_gsheets(st.session_state.schedule)
 
-                    st.success("충돌 피하기 & 손실 시간 보정 알고리즘이 반영된 스케줄이 생성되었습니다!")
+                    st.success("스케줄 생성이 완료되었습니다!")
                     st.rerun()
 
     # --------------------------------------
-    # TAB 3: 학습 방식 & 주간/학교 시간표 설정
+    # TAB 3: 학습 방식 & 시간표 (오류 수정 완료)
     # --------------------------------------
     with tab3:
         st.subheader("⚙️ 학습 방식 & 시간표 설정")
         
         st.markdown("#### 🎯 목표 공부 분량")
-        st.session_state.study_style["target_hours"] = st.number_input("하루 목표 순공 시간 (시간)", min_value=1.0, max_value=16.0, value=float(st.session_state.study_style["target_hours"]), step=0.5)
-        st.session_state.study_style["max_pages_per_day"] = st.number_input("하루 과목당 목표 학습 페이지 수", min_value=1, max_value=100, value=int(st.session_state.study_style["max_pages_per_day"]), step=1)
+        
+        # 안전한 float 캐스팅 적용으로 TypeError 해결
+        try:
+            curr_target_h = float(st.session_state.study_style.get("target_hours", 4.0))
+        except (ValueError, TypeError):
+            curr_target_h = 4.0
+
+        st.session_state.study_style["target_hours"] = st.number_input(
+            "하루 목표 순공 시간 (시간)", 
+            min_value=1.0, 
+            max_value=16.0, 
+            value=curr_target_h, 
+            step=0.5
+        )
+        
+        try:
+            curr_max_p = int(st.session_state.study_style.get("max_pages_per_day", 5))
+        except (ValueError, TypeError):
+            curr_max_p = 5
+
+        st.session_state.study_style["max_pages_per_day"] = st.number_input(
+            "하루 과목당 목표 학습 페이지 수", 
+            min_value=1, 
+            max_value=100, 
+            value=curr_max_p, 
+            step=1
+        )
         
         st.divider()
         st.markdown("#### 📅 요일별 공부 시작 가능 시간")
         weekdays = ["월", "화", "수", "목", "금", "토", "일"]
+        
+        if "weekday_start_time" not in st.session_state.study_style:
+            st.session_state.study_style["weekday_start_time"] = {day: time(18, 0) for day in weekdays}
+
         for w in weekdays:
-            st.session_state.study_style["weekday_start_time"][w] = st.time_input(f"{w}요일 공부 시작 시간", value=st.session_state.study_style["weekday_start_time"][w], key=f"w_start_{w}")
+            st.session_state.study_style["weekday_start_time"][w] = st.time_input(
+                f"{w}요일 공부 시작 시간", 
+                value=st.session_state.study_style["weekday_start_time"].get(w, time(18, 0)), 
+                key=f"w_start_{w}"
+            )
 
         st.divider()
         st.markdown("#### 🏫 월~금 학교 시간표 설정")
+        
+        if "school" not in st.session_state.study_style:
+            st.session_state.study_style["school"] = {
+                "go_time": time(8, 20),
+                "leave_time": time(16, 30),
+                "periods": {p: {"active": True, "start": time(9, 0), "end": time(9, 45)} for p in range(1, 9)}
+            }
+
         col_g, col_l = st.columns(2)
-        st.session_state.study_style["school"]["go_time"] = col_g.time_input("등교 시간", value=st.session_state.study_style["school"]["go_time"])
-        st.session_state.study_style["school"]["leave_time"] = col_l.time_input("하교 시간", value=st.session_state.study_style["school"]["leave_time"])
+        st.session_state.study_style["school"]["go_time"] = col_g.time_input("등교 시간", value=st.session_state.study_style["school"].get("go_time", time(8, 20)))
+        st.session_state.study_style["school"]["leave_time"] = col_l.time_input("하교 시간", value=st.session_state.study_style["school"].get("leave_time", time(16, 30)))
 
         st.caption("1~8교시 세부 시간 및 교시 존재 여부")
         for p in range(1, 9):
-            p_data = st.session_state.study_style["school"]["periods"][p]
+            p_data = st.session_state.study_style["school"]["periods"].get(p, {"active": True, "start": time(9, 0), "end": time(9, 45)})
             p_col1, p_col2, p_col3 = st.columns([1.5, 2, 2])
-            p_data["active"] = p_col1.checkbox(f"{p}교시 존재", value=p_data["active"], key=f"p_act_{p}")
-            p_data["start"] = p_col2.time_input(f"{p}교시 시작", value=p_data["start"], key=f"p_st_{p}")
-            p_data["end"] = p_col3.time_input(f"{p}교시 종료", value=p_data["end"], key=f"p_en_{p}")
+            p_data["active"] = p_col1.checkbox(f"{p}교시 존재", value=p_data.get("active", True), key=f"p_act_{p}")
+            p_data["start"] = p_col2.time_input(f"{p}교시 시작", value=p_data.get("start", time(9, 0)), key=f"p_st_{p}")
+            p_data["end"] = p_col3.time_input(f"{p}교시 종료", value=p_data.get("end", time(9, 45)), key=f"p_en_{p}")
+            st.session_state.study_style["school"]["periods"][p] = p_data
 
         if st.button("💾 학습 방식 및 시간표 저장", use_container_width=True):
             st.success("학습 방식 및 시간표 설정이 저장되었습니다!")
 
     # --------------------------------------
-    # TAB 4: 일상 루틴 설정 (취침 & 식사 동적 관리)
+    # TAB 4: 일상 루틴 설정 (정상 출력 보장)
     # --------------------------------------
     with tab4:
         st.subheader("⏰ 일상 루틴 설정")
         
-        # 1. 취침 시간
+        if "routine" not in st.session_state or not isinstance(st.session_state.routine, dict):
+            st.session_state.routine = {
+                "sleep": {"start": time(23, 0), "end": time(7, 0)},
+                "meals": [
+                    {"name": "아침", "start": time(7, 30), "duration": 30},
+                    {"name": "점심", "start": time(12, 30), "duration": 60},
+                    {"name": "저녁", "start": time(19, 0), "duration": 60}
+                ]
+            }
+
         st.markdown("#### 🌙 취침 & 기상 시간")
         col_s, col_e = st.columns(2)
-        st.session_state.routine["sleep"]["start"] = col_s.time_input("취침 시작 시간", value=st.session_state.routine["sleep"]["start"])
-        st.session_state.routine["sleep"]["end"] = col_e.time_input("기상 시간", value=st.session_state.routine["sleep"]["end"])
+        
+        sleep_data = st.session_state.routine.get("sleep", {"start": time(23, 0), "end": time(7, 0)})
+        st.session_state.routine["sleep"]["start"] = col_s.time_input("취침 시작 시간", value=sleep_data.get("start", time(23, 0)))
+        st.session_state.routine["sleep"]["end"] = col_e.time_input("기상 시간", value=sleep_data.get("end", time(7, 0)))
 
         st.divider()
         st.markdown("#### 🍽️ 식사 시간 동적 설정")
         
-        # 식사 추가 버튼
         if st.button("➕ 식사 항목 추가"):
             st.session_state.routine["meals"].append({"name": f"식사 {len(st.session_state.routine['meals'])+1}", "start": time(12, 0), "duration": 30})
             st.rerun()
 
         del_idx = None
-        for m_idx, meal in enumerate(st.session_state.routine["meals"]):
+        meals_list = st.session_state.routine.get("meals", [])
+        for m_idx, meal in enumerate(meals_list):
             mc1, mc2, mc3, mc4 = st.columns([2, 2, 2, 1])
-            meal["name"] = mc1.text_input(f"식사 이름 #{m_idx+1}", value=meal["name"], key=f"meal_n_{m_idx}")
-            meal["start"] = mc2.time_input(f"시작 시간 #{m_idx+1}", value=meal["start"], key=f"meal_s_{m_idx}")
-            meal["duration"] = mc3.number_input(f"소요 시간(분) #{m_idx+1}", min_value=10, max_value=180, value=int(meal["duration"]), key=f"meal_d_{m_idx}")
+            meal["name"] = mc1.text_input(f"식사 이름 #{m_idx+1}", value=meal.get("name", ""), key=f"meal_n_{m_idx}")
+            meal["start"] = mc2.time_input(f"시작 시간 #{m_idx+1}", value=meal.get("start", time(12, 0)), key=f"meal_s_{m_idx}")
+            meal["duration"] = mc3.number_input(f"소요 시간(분) #{m_idx+1}", min_value=10, max_value=180, value=int(meal.get("duration", 30)), key=f"meal_d_{m_idx}")
             
-            if len(st.session_state.routine["meals"]) > 1:
+            if len(meals_list) > 1:
                 if mc4.button("🗑️", key=f"del_meal_{m_idx}"):
                     del_idx = m_idx
 
