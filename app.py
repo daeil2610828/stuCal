@@ -63,6 +63,15 @@ def save_schedule_to_gsheets(df):
     except Exception as e:
         st.error(f"구글 시트 저장 실패: {e}")
 
+# --- URL 쿼리 파라미터를 통한 클릭 날짜 감지 ---
+query_params = st.query_params
+if "clicked_date" in query_params:
+    try:
+        c_date = datetime.strptime(query_params["clicked_date"], "%Y-%m-%d").date()
+        st.session_state.selected_date = c_date
+    except Exception:
+        pass
+
 # 세션 상태 초기화
 if "schedule" not in st.session_state:
     st.session_state.schedule = load_schedule_from_gsheets()
@@ -116,65 +125,79 @@ selected_accent = color_map[accent_color]
 
 theme_mode = st.sidebar.radio("모드 설정", ["라이트 모드", "다크 모드"], index=0)
 
-# --- 엑셀 스타일 CSS 및 전용 달력 클래스 고유 적용 ---
+# --- 완전한 엑셀 격자(Gap 0px) CSS ---
 st.markdown(f"""
     <style>
-        /* 엑셀 느낌의 달력 전용 버튼 스타일 */
-        .excel-cal-cell > button {{
-            min-height: 90px !important;
-            height: 90px !important;
-            width: 100% !important;
-            border: 1px solid #dadce0 !important;
-            border-radius: 0px !important; /* 엑셀 사각 셀 느낌 */
-            background-color: #ffffff !important;
-            color: #3c4043 !important;
-            padding: 4px 6px !important;
-            margin: 0px !important;
-            display: flex !important;
-            flex-direction: column !important;
-            justify-content: flex-start !important;
-            align-items: flex-start !important;
-            text-align: left !important;
-            font-size: 13px !important;
-            box-sizing: border-box !important;
+        .excel-table {{
+            width: 100%;
+            border-collapse: collapse !important;
+            table-layout: fixed;
+            border: 1px solid #dadce0;
         }}
         
-        .excel-cal-cell > button:hover {{
-            background-color: #f1f3f4 !important;
-            border-color: #bdc1c6 !important;
-        }}
-
-        /* 선택된 엑셀 셀 (연파랑 하이라이트) */
-        .excel-cal-cell-selected > button {{
-            background-color: #e8f0fe !important;
-            border: 2px solid {selected_accent} !important;
-            color: {selected_accent} !important;
-            font-weight: bold !important;
-        }}
-
-        /* 다른 달 날짜 엑셀 셀 */
-        .excel-cal-cell-other > button {{
-            background-color: #f8f9fa !important;
-            color: #c0c4cc !important;
-            border: 1px solid #f1f3f4 !important;
-        }}
-        
-        /* 엑셀 날짜 숫자 (좌상단 정렬) */
-        .day-num {{
+        .excel-table th {{
+            background-color: #f1f3f4;
+            border: 1px solid #dadce0;
+            padding: 6px 0;
+            text-align: center;
             font-size: 12px;
             font-weight: bold;
-            margin-bottom: 4px;
-            text-align: left;
-            width: 100%;
+            color: #5f6368;
         }}
         
-        /* 엑셀 셀 내용 */
-        .cell-content {{
+        .excel-table td {{
+            border: 1px solid #dadce0;
+            height: 85px;
+            vertical-align: top;
+            padding: 0;
+            background-color: #ffffff;
+            position: relative;
+        }}
+        
+        .excel-cell-link {{
+            display: block;
+            width: 100%;
+            height: 100%;
+            padding: 6px;
+            text-decoration: none !important;
+            color: #3c4043;
+            box-sizing: border-box;
+        }}
+        
+        .excel-cell-link:hover {{
+            background-color: #f8f9fa;
+        }}
+
+        .excel-cell-selected {{
+            background-color: #e8f0fe !important;
+            box-shadow: inset 0 0 0 2px {selected_accent};
+        }}
+        
+        .excel-cell-selected .day-num {{
+            color: {selected_accent};
+            font-weight: bold;
+        }}
+
+        .excel-cell-other {{
+            background-color: #fcfcfc;
+        }}
+        
+        .excel-cell-other .day-num {{
+            color: #ccc;
+        }}
+
+        .day-num {{
+            font-size: 12px;
+            text-align: left;
+            margin-bottom: 4px;
+            display: block;
+        }}
+
+        .cell-info {{
             font-size: 11px;
             line-height: 1.2;
             word-break: break-all;
-            text-align: left;
-            width: 100%;
+            color: #1a73e8;
         }}
     </style>
 """, unsafe_allow_html=True)
@@ -186,12 +209,12 @@ st.caption("시험 날짜와 공부 범위를 설정하고, 달성도에 따라 
 left_col, right_col = st.columns([1.1, 0.9], gap="large")
 
 # ==========================================
-# [왼쪽 칼럼] 엑셀형 커스텀 달력
+# [왼쪽 칼럼] Gap 없는 Seamless 엑셀 달력
 # ==========================================
 with left_col:
     st.subheader("🗓️ 달력")
     
-    # 상단 컨트롤: 작고 정돈된 이전/다음 달 버튼 및 통합 날짜 선택기
+    # 상단 컨트롤: 이전/다음 달 버튼 및 통합 날짜 선택기
     nav_col1, nav_col2, nav_col3 = st.columns([0.8, 4.4, 0.8])
     
     selected_dt = st.session_state.selected_date
@@ -220,7 +243,7 @@ with left_col:
             st.session_state.selected_date = next_month.replace(day=min(selected_dt.day, 28))
             st.rerun()
 
-    # --- 엑셀 스타일 grid 캘린더 생성 ---
+    # --- HTML 기반 Seamless 엑셀 표 구현 ---
     year = selected_dt.year
     month = selected_dt.month
     
@@ -229,57 +252,58 @@ with left_col:
         for _, row in st.session_state.schedule.iterrows():
             schedule_dict[row["날짜"]] = row
 
-    # 요일 헤더 (엑셀 시트 헤더 느낌)
-    days_header = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
-    hdr_cols = st.columns(7)
-    for idx, day_name in enumerate(days_header):
-        hdr_cols[idx].markdown(
-            f"<div style='text-align: center; font-weight: bold; background-color: #f1f3f4; "
-            f"border: 1px solid #dadce0; padding: 4px 0px; font-size: 12px; color: #5f6368;'>{day_name}</div>",
-            unsafe_allow_html=True
-        )
-
     cal = calendar.Calendar(firstweekday=6)
     month_days = cal.monthdatescalendar(year, month)
 
+    html_code = '<table class="excel-table">'
+    
+    # 요일 헤더
+    html_code += '<thead><tr>'
+    for day_name in ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]:
+        html_code += f'<th>{day_name}</th>'
+    html_code += '</tr></thead><tbody>'
+
+    # 일자 그리드 생성
     for week in month_days:
-        week_cols = st.columns(7)
-        for idx, day_date in enumerate(week):
+        html_code += '<tr>'
+        for day_date in week:
             is_current_month = (day_date.month == month)
             is_selected = (day_date == selected_dt)
             
             data = schedule_dict.get(day_date, None)
             
-            # 셀 라벨 (좌상단 숫자 + 하단 내용)
-            day_num = str(day_date.day)
-            content_str = ""
+            td_classes = []
+            if not is_current_month:
+                td_classes.append("excel-cell-other")
+            if is_selected and is_current_month:
+                td_classes.append("excel-cell-selected")
+                
+            td_class_str = f'class="{" ".join(td_classes)}"' if td_classes else ''
             
+            date_str = day_date.strftime("%Y-%m-%d")
+            
+            # 셀 내용 구성
+            content_html = ""
             if is_current_month and data is not None:
                 is_done = data.get("완료여부", False)
                 icon = "✅" if is_done else "📖"
-                content_str = f"\n{icon} {data['목표 범위']}"
-            
-            display_label = f"{day_num}{content_str}"
-            btn_key = f"excel_cell_{day_date.strftime('%Y_%m_%d')}"
-            
-            # 셀 CSS 클래스 분기
-            cell_class = "excel-cal-cell"
-            if is_selected and is_current_month:
-                cell_class = "excel-cal-cell excel-cal-cell-selected"
-            elif not is_current_month:
-                cell_class = "excel-cal-cell excel-cal-cell-other"
+                content_html = f'<div class="cell-info">{icon} {data["목표 범위"]}</div>'
                 
-            with week_cols[idx]:
-                st.markdown(f'<div class="{cell_class}">', unsafe_allow_html=True)
-                if st.button(
-                    display_label,
-                    key=btn_key,
-                    use_container_width=True,
-                    disabled=not is_current_month
-                ):
-                    st.session_state.selected_date = day_date
-                    st.rerun()
-                st.markdown('</div>', unsafe_allow_html=True)
+            # 클릭 시 URL 파라미터 전달 링크 구성
+            link_target = f"?clicked_date={date_str}" if is_current_month else "#"
+            
+            html_code += f'<td {td_class_str}>'
+            html_code += f'<a href="{link_target}" target="_self" class="excel-cell-link">'
+            html_code += f'<span class="day-num">{day_date.day}</span>'
+            html_code += content_html
+            html_code += '</a>'
+            html_code += 'td>'
+            
+        html_code += '<tr>'
+        
+    html_code += '</tbody></table>'
+    
+    st.markdown(html_code, unsafe_allow_html=True)
 
 # ==========================================
 # [오른쪽 칼럼] 탭뷰 (1, 2, 3)
