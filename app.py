@@ -3,7 +3,6 @@ import pandas as pd
 import json
 from datetime import date, datetime, time, timedelta
 import calendar
-import streamlit.components.v1 as components
 
 # ==========================================
 # 앱 내 전체 텍스트 모음
@@ -69,61 +68,6 @@ def create_empty_subject():
         "has_sheets": False,
         "sheets": [{"name": "학습지 1", "related_page": 5}]
     }
-
-# ==========================================
-# 브라우저 영구 데이터베이스 저장/불러오기 컴포넌트
-# ==========================================
-def sync_browser_db():
-    """브라우저의 IndexedDB/LocalStorage와 Streamlit 상태를 완전히 동기화"""
-    
-    # URL을 통한 자동 복원 감지
-    query_params = st.query_params
-    if "load_db" in query_params:
-        try:
-            raw_data = query_params["load_db"]
-            deserialize_state(raw_data, mode="replace")
-            st.query_params.clear()
-            st.rerun()
-        except Exception as e:
-            st.query_params.clear()
-
-    # 현재 상태를 브라우저에 저장
-    current_json = serialize_state()
-    components.html(
-        f"""
-        <script>
-            const DB_KEY = "stucal_user_permanent_db";
-            const currentData = {json.dumps(current_json)};
-            
-            // 1. 브라우저 저장소 확인
-            const savedData = localStorage.getItem(DB_KEY);
-            const urlParams = new URLSearchParams(window.location.search);
-            
-            // 2. 서버 상태가 비어있고 브라우저에 저장 데이터가 있다면 자동으로 세션 복원
-            if (savedData && !urlParams.has("load_db") && !window.hasRestoredData) {{
-                window.hasRestoredData = true;
-                const url = new URL(window.location.href);
-                url.searchParams.set("load_db", savedData);
-                window.location.href = url.toString();
-            }} else {{
-                // 3. 변경된 데이터를 브라우저에 즉시 영구 동기화
-                localStorage.setItem(DB_KEY, currentData);
-            }}
-        </script>
-        """,
-        height=0
-    )
-
-def clear_browser_db():
-    """브라우저 영구 데이터 초기화"""
-    components.html(
-        """
-        <script>
-            localStorage.removeItem("stucal_user_permanent_db");
-        </script>
-        """,
-        height=0
-    )
 
 # ==========================================
 # 세션 상태 초기화
@@ -307,9 +251,6 @@ def deserialize_state(data_json, mode="replace"):
                     } for k, v in sch["periods"].items()
                 }
 
-# 브라우저 영구 DB 동기화 실행
-sync_browser_db()
-
 # ==========================================
 # 사이드바
 # ==========================================
@@ -360,7 +301,6 @@ else:
         st.session_state.schedule = create_empty_study_df()
         st.session_state.personal_schedule = create_empty_personal_df()
         st.session_state.show_reset_confirm = False
-        clear_browser_db()
         st.sidebar.success(TEXTS["SIDEBAR"]["RESET_SUCCESS"])
         st.rerun()
         
@@ -434,11 +374,11 @@ with left_col:
                 
                 badges = month_schedules.get(day, [])
                 badge_str = ""
-                if any("⭐" in str(b) or "시험" in str(b) for b in badges):
+                if any("⭐" in str(b) or "시험" in str(b) or "수행" in str(b) for b in badges):
                     badge_str += "⭐"
                 if any("🔥" in str(b) for b in badges):
                     badge_str += "🔥"
-                if any("📖" in str(b) for b in badges):
+                if any("📖" in str(b) or "준비" in str(b) for b in badges):
                     badge_str += "📖"
                 if "개인" in badges:
                     badge_str += "📌"
@@ -475,7 +415,7 @@ with left_col:
                     st.rerun()
 
         for idx, row in day_studies.iterrows():
-            is_exam = "⭐" in str(row["종류"]) or "시험" in str(row["종류"])
+            is_exam = "⭐" in str(row["종류"]) or "시험" in str(row["종류"]) or "수행평가" in str(row["종류"])
             icon = "⭐" if is_exam else ("✅" if row["완료여부"] else "📖")
             with st.expander(f"{icon} [{row['종류']}] {row['제목']} - {row['목표 범위']}"):
                 st.write(f"**목표량:** {row['목표량']}")
@@ -586,13 +526,16 @@ with right_col:
                 st.rerun()
 
     # --------------------------------------
-    # TAB 2: 정기고사/학습 등록
+    # TAB 2: 정기고사/학습/수행평가 등록
     # --------------------------------------
     with tab2:
-        st.subheader("📚 정기고사 & 학습 일정 세부 생성")
+        st.subheader("📚 정기고사 & 수행평가 학습 일정 등록")
         
         schedule_type = st.selectbox("학습 일정 종류", options=["정기고사", "수행평가", "기타"])
         
+        # ----------------------------------
+        # 1. 정기고사
+        # ----------------------------------
         if schedule_type == "정기고사":
             st.markdown("#### 📝 정기고사 기본 설정")
             exam_name = st.text_input("시험명", value="1학기 중간고사")
@@ -776,6 +719,89 @@ with right_col:
                     new_df = pd.DataFrame(new_schedules)
                     st.session_state.schedule = pd.concat([st.session_state.schedule, new_df], ignore_index=True)
                     st.success("스케줄 생성이 완료되었습니다!")
+                    st.rerun()
+
+        # ----------------------------------
+        # 2. 수행평가 (새로 추가)
+        # ----------------------------------
+        elif schedule_type == "수행평가":
+            st.markdown("#### 📝 수행평가 등록 및 D-Day 스케줄 생성")
+            
+            with st.form("add_perf_eval_form"):
+                eval_title = st.text_input("수행평가명", placeholder="예: 국어 발표 수행평가, 과학 실험 보고서")
+                
+                c_sub, c_period = st.columns(2)
+                eval_subject = c_sub.text_input("과목명", placeholder="예: 국어, 통합과학")
+                eval_period = c_period.number_input("평가 교시", min_value=1, max_value=8, value=3)
+                
+                c_date, c_prep = st.columns(2)
+                eval_date = c_date.date_input("수행평가 날짜 (D-Day)", value=date.today() + timedelta(days=7))
+                prep_days = c_prep.number_input("준비 기간 (일)", min_value=1, max_value=30, value=3, help="D-Day 몇 일 전부터 준비 일정을 등록할지 선택합니다.")
+                
+                eval_range_text = st.text_area("상세 범위 및 준비 내용", placeholder="예: 교과서 45~60p 읽기, 피피티 자료조사 및 스크립트 작성")
+                
+                if st.form_submit_button("🚀 수행평가 D-Day 스케줄 등록", use_container_width=True):
+                    if not eval_title.strip() or not eval_subject.strip():
+                        st.error("수행평가명과 과목명을 모두 입력해주세요.")
+                    else:
+                        new_perf_schedules = []
+                        
+                        # 1) D-Day 수행평가 본 일정 추가
+                        new_perf_schedules.append({
+                            "id": len(st.session_state.schedule) + 1,
+                            "날짜": eval_date,
+                            "종류": "⭐ 수행평가",
+                            "제목": f"[{eval_subject}] {eval_title}",
+                            "목표 범위": f"{eval_period}교시 진행",
+                            "목표량": "수행평가 응시/제출",
+                            "완료여부": False,
+                            "메모": f"평가 범위: {eval_range_text}"
+                        })
+                        
+                        # 2) D-준비일 ~ D-1 준비 일정 생성
+                        for d_offset in range(prep_days, 0, -1):
+                            prep_date = eval_date - timedelta(days=d_offset)
+                            new_perf_schedules.append({
+                                "id": len(st.session_state.schedule) + len(new_perf_schedules) + 1,
+                                "날짜": prep_date,
+                                "종류": "📖 수행준비",
+                                "제목": f"[{eval_subject}] {eval_title} 준비 (D-{d_offset})",
+                                "목표 범위": f"D-{d_offset} 준비 및 복습",
+                                "목표량": "준비 분량 작성",
+                                "완료여부": False,
+                                "메모": f"준비 내용: {eval_range_text}"
+                            })
+                            
+                        new_perf_df = pd.DataFrame(new_perf_schedules)
+                        st.session_state.schedule = pd.concat([st.session_state.schedule, new_perf_df], ignore_index=True)
+                        st.success(f"{eval_title} 수행평가 및 D-{prep_days}부터의 준비 스케줄이 등록되었습니다!")
+                        st.rerun()
+
+        # ----------------------------------
+        # 3. 기타
+        # ----------------------------------
+        else:
+            st.markdown("#### 📝 기타 학습 일정 등록")
+            with st.form("add_other_study_form"):
+                o_title = st.text_input("학습 제목", placeholder="예: 수능 특강 영어 독해 1강")
+                o_date = st.date_input("학습 날짜", value=st.session_state.selected_date)
+                o_range = st.text_input("목표 범위", placeholder="예: 1~5페이지")
+                o_amount = st.text_input("목표량", placeholder="예: 3문제 풀기")
+                o_memo = st.text_area("메모")
+                
+                if st.form_submit_button("➕ 기타 학습 등록", use_container_width=True):
+                    new_item = pd.DataFrame([{
+                        "id": len(st.session_state.schedule) + 1,
+                        "날짜": o_date,
+                        "종류": "📖 기타학습",
+                        "제목": o_title,
+                        "목표 범위": o_range,
+                        "목표량": o_amount,
+                        "완료여부": False,
+                        "메모": o_memo
+                    }])
+                    st.session_state.schedule = pd.concat([st.session_state.schedule, new_item], ignore_index=True)
+                    st.success("학습 일정이 등록되었습니다!")
                     st.rerun()
 
     # --------------------------------------
