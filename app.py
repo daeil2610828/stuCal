@@ -11,7 +11,7 @@ from google.oauth2.service_account import Credentials
 # ==========================================
 TEXTS = {
     "APP_TITLE": "📅 스마트 시험 D-Day & 공부 스케줄러",
-    "APP_CAPTION": "시험 날짜와 공부 범위를 설정하고, 개인 일정 및 하루 루틴에 맞춰 학습 스케줄을 재조정하세요.",
+    "APP_CAPTION": "시험 날짜와 공부 범위를 설정하고, 개인 일정 및 하루 루틴에 맞춰 학습 스케줄을 계획하세요.",
     
     "SIDEBAR": {
         "TITLE": "📁 데이터 관리",
@@ -33,38 +33,9 @@ TEXTS = {
     },
     
     "TABS": {
-        "TAB1_NAME": "1. 공부 기록",
+        "TAB1_NAME": "1. 개인 일정 추가",
         "TAB2_NAME": "2. 학습 일정 추가",
-        "TAB3_NAME": "3. 개인 일정 추가",
-        "TAB4_NAME": "4. 일상 루틴 설정",
-        "TAB5_NAME": "5. 일정 확인/수정",
-        "TAB6_NAME": "6. 설정"
-    },
-    
-    "STUDY_RECORD": {
-        "HEADER": "📋 공부 기록 및 스케줄 조정",
-        "KPI_TOTAL": "총 목표량",
-        "KPI_COMPLETED": "현재 완료량",
-        "KPI_PROGRESS": "진행률",
-        "SAVE_GSHEET_BTN": "💾 구글 시트에 저장",
-        "SAVE_SUCCESS": "구글 시트에 저장 완료!",
-        "READJUST_BTN": "🔄 일정 자동 재조정",
-        "READJUST_SUCCESS": "재조정이 완료되었습니다!",
-        "ALL_DONE": "🎉 모든 공부 목표를 달성했습니다!",
-        "NO_FUTURE_DAYS": "⚠️ 남은 공부 기간이 없습니다.",
-        "NO_SCHEDULE_INFO": "등록된 스케줄 데이터가 없습니다. 상단 탭에서 학습 일정을 추가해주세요."
-    },
-
-    "ADD_STUDY": {
-        "HEADER": "📚 학습 일정 세부 설정 & 생성",
-        "SUBJECT_LABEL": "과목명",
-        "SUBJECT_PLACEHOLDER": "예: 일반생물학, 토익, 수능 수학",
-        "RANGE_TYPE_LABEL": "목표 단위",
-        "TOTAL_AMOUNT_LABEL": "총 목표량 (페이지/강 수 등)",
-        "START_DATE_LABEL": "공부 시작일",
-        "EXAM_DATE_LABEL": "시험/목표 완료일",
-        "CREATE_BTN": "🚀 새로운 학습 스케줄 생성",
-        "SUCCESS": "학습 스케줄이 성공적으로 생성되어 달성에 반영되었습니다!"
+        "TAB3_NAME": "3. 일상 루틴 설정"
     },
 
     "ADD_PERSONAL": {
@@ -78,6 +49,18 @@ TEXTS = {
         "SUCCESS": "개인 일정이 등록되었습니다!"
     },
 
+    "ADD_STUDY": {
+        "HEADER": "📚 학습 일정 세부 설정 & 생성",
+        "SUBJECT_LABEL": "과목명",
+        "SUBJECT_PLACEHOLDER": "예: 일반생물학, 토익, 수능 수학",
+        "RANGE_TYPE_LABEL": "목표 단위",
+        "TOTAL_AMOUNT_LABEL": "총 목표량 (페이지/강 수 등)",
+        "START_DATE_LABEL": "공부 시작일",
+        "EXAM_DATE_LABEL": "시험/목표 완료일",
+        "CREATE_BTN": "🚀 새로운 학습 스케줄 생성",
+        "SUCCESS": "학습 스케줄이 성공적으로 생성되었습니다!"
+    },
+
     "ROUTINE": {
         "HEADER": "⏰ 일상 루틴 & 순공 시간 설정",
         "SLEEP_LABEL": "하루 평균 취침 시간",
@@ -86,23 +69,6 @@ TEXTS = {
         "CALC_INFO": "💡 하루 24시간 중 학업에 투자할 수 있는 최대 시간:",
         "SAVE_BTN": "💾 루틴 설정 저장",
         "SAVE_SUCCESS": "일상 루틴 설정이 저장되었습니다!"
-    },
-    
-    "SCHEDULE_EDIT": {
-        "HEADER": "📌 등록된 일정 개별 선택 및 수정",
-        "SELECT_LABEL": "수정할 일정을 선택하세요",
-        "SELECTED_DATE_PREFIX": "📅 **선택된 날짜**: ",
-        "RANGE_LABEL": "목표 범위",
-        "AMOUNT_LABEL": "목표량",
-        "DONE_LABEL": "완료 여부",
-        "UPDATE_BTN": "일정 업데이트",
-        "UPDATE_SUCCESS": "일정이 업데이트되었습니다!",
-        "NO_DATA_INFO": "선택할 수 있는 일정 데이터가 없습니다."
-    },
-    
-    "SETTINGS": {
-        "HEADER": "📌 기타 설정",
-        "INFO": "구글 시트 연동 상태 및 기타 시스템 옵션을 확인할 수 있습니다."
     },
     
     "MESSAGES": {
@@ -378,90 +344,38 @@ with left_col:
 # [오른쪽 칼럼] 탭뷰
 # ------------------------------------------
 with right_col:
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    tab1, tab2, tab3 = st.tabs([
         TEXTS["TABS"]["TAB1_NAME"], 
         TEXTS["TABS"]["TAB2_NAME"], 
-        TEXTS["TABS"]["TAB3_NAME"], 
-        TEXTS["TABS"]["TAB4_NAME"], 
-        TEXTS["TABS"]["TAB5_NAME"], 
-        TEXTS["TABS"]["TAB6_NAME"]
+        TEXTS["TABS"]["TAB3_NAME"]
     ])
     
     # --------------------------------------
-    # TAB 1: 일별 공부 기록 및 스케줄 조정
+    # TAB 1: 개인 일정 추가
     # --------------------------------------
     with tab1:
-        st.subheader(TEXTS["STUDY_RECORD"]["HEADER"])
-        
-        if st.session_state.schedule is not None and not st.session_state.schedule.empty:
-            df = st.session_state.schedule
-            calculated_total = int(df["목표량"].sum())
-            total_completed = int(df["실제 완료량"].sum())
-            progress_pct = min(100.0, (total_completed / calculated_total) * 100) if calculated_total > 0 else 0
+        st.subheader(TEXTS["ADD_PERSONAL"]["HEADER"])
+        with st.form("add_personal_form"):
+            p_title = st.text_input(TEXTS["ADD_PERSONAL"]["TITLE_LABEL"], placeholder=TEXTS["ADD_PERSONAL"]["TITLE_PLACEHOLDER"])
+            p_date = st.date_input(TEXTS["ADD_PERSONAL"]["DATE_LABEL"], value=date.today())
+            p_hours = st.number_input(TEXTS["ADD_PERSONAL"]["TIME_LABEL"], min_value=0.5, max_value=24.0, value=2.0, step=0.5)
+            p_memo = st.text_area(TEXTS["ADD_PERSONAL"]["MEMO_LABEL"])
             
-            kpi_col1, kpi_col2, kpi_col3 = st.columns(3)
-            kpi_col1.metric(TEXTS["STUDY_RECORD"]["KPI_TOTAL"], f"{calculated_total}")
-            kpi_col2.metric(TEXTS["STUDY_RECORD"]["KPI_COMPLETED"], f"{total_completed}")
-            kpi_col3.metric(TEXTS["STUDY_RECORD"]["KPI_PROGRESS"], f"{progress_pct:.1f}%")
-            
-            st.progress(progress_pct / 100)
+            if st.form_submit_button(TEXTS["ADD_PERSONAL"]["ADD_BTN"], use_container_width=True):
+                new_event = pd.DataFrame([{
+                    "날짜": p_date,
+                    "일정명": p_title,
+                    "소요시간": p_hours,
+                    "메모": p_memo
+                }])
+                st.session_state.personal_schedule = pd.concat([st.session_state.personal_schedule, new_event], ignore_index=True)
+                st.success(TEXTS["ADD_PERSONAL"]["SUCCESS"])
+                st.rerun()
+                
+        if not st.session_state.personal_schedule.empty:
             st.divider()
-
-            edited_df = st.data_editor(
-                df,
-                column_config={
-                    "날짜": st.column_config.DateColumn("날짜", disabled=True),
-                    "목표 범위": st.column_config.TextColumn("목표 범위", disabled=True),
-                    "목표량": st.column_config.NumberColumn("목표량", disabled=True),
-                    "실제 완료량": st.column_config.NumberColumn("실제 완료량", min_value=0, max_value=calculated_total),
-                    "완료여부": st.column_config.CheckboxColumn("완료 체크")
-                },
-                disabled=["날짜", "목표 범위", "목표량"],
-                hide_index=True,
-                use_container_width=True
-            )
-            
-            btn_col1, btn_col2 = st.columns(2)
-            
-            with btn_col1:
-                if st.button(TEXTS["STUDY_RECORD"]["SAVE_GSHEET_BTN"], use_container_width=True):
-                    st.session_state.schedule = edited_df
-                    save_schedule_to_gsheets(edited_df)
-                    st.success(TEXTS["STUDY_RECORD"]["SAVE_SUCCESS"])
-                    st.rerun()
-
-            with btn_col2:
-                if st.button(TEXTS["STUDY_RECORD"]["READJUST_BTN"], use_container_width=True):
-                    today = date.today()
-                    future_mask = (edited_df["날짜"] >= today) & (~edited_df["완료여부"])
-                    future_days_count = future_mask.sum()
-                    
-                    current_completed = int(edited_df["실제 완료량"].sum())
-                    new_remaining = calculated_total - current_completed
-                    
-                    if new_remaining <= 0:
-                        st.balloons()
-                        st.success(TEXTS["STUDY_RECORD"]["ALL_DONE"])
-                    elif future_days_count <= 0:
-                        st.warning(TEXTS["STUDY_RECORD"]["NO_FUTURE_DAYS"])
-                    else:
-                        new_daily_target = math.ceil(new_remaining / future_days_count)
-                        accumulated = current_completed
-                        
-                        for idx in edited_df[future_mask].index:
-                            p_start = accumulated + 1
-                            p_end = min(accumulated + new_daily_target, calculated_total)
-                            
-                            edited_df.loc[idx, "목표 범위"] = f"{p_start} ~ {p_end}" if p_start <= calculated_total else "완료"
-                            edited_df.loc[idx, "목표량"] = max(0, p_end - p_start + 1) if p_start <= calculated_total else 0
-                            accumulated = p_end
-                            
-                        st.session_state.schedule = edited_df
-                        save_schedule_to_gsheets(edited_df)
-                        st.success(TEXTS["STUDY_RECORD"]["READJUST_SUCCESS"])
-                        st.rerun()
-        else:
-            st.info(TEXTS["STUDY_RECORD"]["NO_SCHEDULE_INFO"])
+            st.write("📋 **등록된 개인 일정 목록**")
+            st.dataframe(st.session_state.personal_schedule, use_container_width=True, hide_index=True)
 
     # --------------------------------------
     # TAB 2: 학습 일정 추가
@@ -510,36 +424,9 @@ with right_col:
                     st.rerun()
 
     # --------------------------------------
-    # TAB 3: 개인 일정 추가
+    # TAB 3: 일상 루틴 설정
     # --------------------------------------
     with tab3:
-        st.subheader(TEXTS["ADD_PERSONAL"]["HEADER"])
-        with st.form("add_personal_form"):
-            p_title = st.text_input(TEXTS["ADD_PERSONAL"]["TITLE_LABEL"], placeholder=TEXTS["ADD_PERSONAL"]["TITLE_PLACEHOLDER"])
-            p_date = st.date_input(TEXTS["ADD_PERSONAL"]["DATE_LABEL"], value=date.today())
-            p_hours = st.number_input(TEXTS["ADD_PERSONAL"]["TIME_LABEL"], min_value=0.5, max_value=24.0, value=2.0, step=0.5)
-            p_memo = st.text_area(TEXTS["ADD_PERSONAL"]["MEMO_LABEL"])
-            
-            if st.form_submit_button(TEXTS["ADD_PERSONAL"]["ADD_BTN"], use_container_width=True):
-                new_event = pd.DataFrame([{
-                    "날짜": p_date,
-                    "일정명": p_title,
-                    "소요시간": p_hours,
-                    "메모": p_memo
-                }])
-                st.session_state.personal_schedule = pd.concat([st.session_state.personal_schedule, new_event], ignore_index=True)
-                st.success(TEXTS["ADD_PERSONAL"]["SUCCESS"])
-                st.rerun()
-                
-        if not st.session_state.personal_schedule.empty:
-            st.divider()
-            st.write("📋 **등록된 개인 일정 목록**")
-            st.dataframe(st.session_state.personal_schedule, use_container_width=True, hide_index=True)
-
-    # --------------------------------------
-    # TAB 4: 일상 루틴 설정
-    # --------------------------------------
-    with tab4:
         st.subheader(TEXTS["ROUTINE"]["HEADER"])
         
         sleep_t = st.number_input(TEXTS["ROUTINE"]["SLEEP_LABEL"], min_value=0, max_value=24, value=st.session_state.routine["취침"])
@@ -554,40 +441,3 @@ with right_col:
         if st.button(TEXTS["ROUTINE"]["SAVE_BTN"], use_container_width=True):
             st.session_state.routine = {"취침": sleep_t, "식사": meal_t, "휴식": rest_t}
             st.success(TEXTS["ROUTINE"]["SAVE_SUCCESS"])
-
-    # --------------------------------------
-    # TAB 5: 일정 확인/수정
-    # --------------------------------------
-    with tab5:
-        st.subheader(TEXTS["SCHEDULE_EDIT"]["HEADER"])
-        if st.session_state.schedule is not None and not st.session_state.schedule.empty:
-            df = st.session_state.schedule
-            schedule_dates = df["날짜"].tolist()
-            
-            selected_item_date = st.selectbox(TEXTS["SCHEDULE_EDIT"]["SELECT_LABEL"], options=schedule_dates, index=0)
-            target_row = df[df["날짜"] == selected_item_date].iloc[0]
-            
-            with st.form("edit_schedule_form"):
-                st.write(f"{TEXTS['SCHEDULE_EDIT']['SELECTED_DATE_PREFIX']}{selected_item_date}")
-                new_range = st.text_input(TEXTS["SCHEDULE_EDIT"]["RANGE_LABEL"], value=target_row["목표 범위"])
-                new_amount = st.number_input(TEXTS["SCHEDULE_EDIT"]["AMOUNT_LABEL"], value=int(target_row["목표량"]))
-                new_done = st.checkbox(TEXTS["SCHEDULE_EDIT"]["DONE_LABEL"], value=bool(target_row["완료여부"]))
-                
-                if st.form_submit_button(TEXTS["SCHEDULE_EDIT"]["UPDATE_BTN"]):
-                    idx = df[df["날짜"] == selected_item_date].index[0]
-                    df.loc[idx, "목표 범위"] = new_range
-                    df.loc[idx, "목표량"] = new_amount
-                    df.loc[idx, "완료여부"] = new_done
-                    st.session_state.schedule = df
-                    save_schedule_to_gsheets(df)
-                    st.success(TEXTS["SCHEDULE_EDIT"]["UPDATE_SUCCESS"])
-                    st.rerun()
-        else:
-            st.info(TEXTS["SCHEDULE_EDIT"]["NO_DATA_INFO"])
-
-    # --------------------------------------
-    # TAB 6: 기타 설정
-    # --------------------------------------
-    with tab6:
-        st.subheader(TEXTS["SETTINGS"]["HEADER"])
-        st.write(TEXTS["SETTINGS"]["INFO"])
