@@ -43,13 +43,13 @@ TEXTS = {
         "KPI_TOTAL": "총 목표량",
         "KPI_COMPLETED": "현재 완료량",
         "KPI_PROGRESS": "진행률",
-        "SAVE_GSHEET_BTN": "💾 구글 시트에 저장",
-        "SAVE_SUCCESS": "구글 시트에 저장 완료!",
+        "SAVE_GSHEET_BTN": "💾 Google Sheets에 저장",
+        "SAVE_SUCCESS": "Google Sheets에 저장 완료!",
         "READJUST_BTN": "🔄 일정 자동 재조정",
         "READJUST_SUCCESS": "재조정이 완료되었습니다!",
         "ALL_DONE": "🎉 모든 공부 목표를 달성했습니다!",
         "NO_FUTURE_DAYS": "⚠️ 남은 공부 기간이 없습니다.",
-        "NO_SCHEDULE_INFO": "등록된 스케줄 데이터가 없습니다. 사이드바에서 파일 데이터를 올려주세요."
+        "NO_SCHEDULE_INFO": "등록된 일정 데이터가 없습니다. 파일을 업로드 해 주세요."
     },
     
     "SCHEDULE_EDIT": {
@@ -66,11 +66,11 @@ TEXTS = {
     
     "SETTINGS": {
         "HEADER": "📌 기타 설정",
-        "INFO": "구글 시트 연동 상태 및 기타 옵션을 확인할 수 있습니다."
+        "INFO": "Google Sheets 연동 상태 및 기타 옵션을 확인할 수 있습니다."
     },
     
     "MESSAGES": {
-        "GSHEET_SAVE_ERROR": "구글 시트 저장 실패: "
+        "GSHEET_SAVE_ERROR": "Google Sheets 저장 실패: "
     }
 }
 
@@ -249,38 +249,38 @@ with left_col:
     # 요일 헤더 HTML 동적 생성
     weekdays_html = "".join([f"<th>{day}</th>" for day in TEXTS["CALENDAR"]["WEEKDAYS"]])
 
+    # 라이트/다크모드 완벽 대응 CSS
     html_code = f"""
     <style>
         .simple-cal {{
-            color-scheme: light dark;
             width: 100%;
             border-collapse: collapse;
             text-align: left;
-            border: 1px solid var(--border-color, rgba(128, 128, 128, 0.3));
+            border: 1px solid rgba(128, 128, 128, 0.3);
         }}
         .simple-cal th {{
-            border: 1px solid var(--border-color, rgba(128, 128, 128, 0.3));
+            border: 1px solid rgba(128, 128, 128, 0.3);
             padding: 8px;
             text-align: center;
-            background-color: var(--secondary-background-color, #f0f2f6);
-            color: var(--text-color, inherit);
+            background-color: rgba(128, 128, 128, 0.15);
+            color: var(--text-color, inherit) !important;
             font-weight: bold;
         }}
         .simple-cal td {{
-            border: 1px solid var(--border-color, rgba(128, 128, 128, 0.3));
+            border: 1px solid rgba(128, 128, 128, 0.3);
             height: 75px;
             vertical-align: top;
             padding: 6px;
-            background-color: var(--background-color, transparent);
+            background-color: transparent;
             color: var(--text-color, inherit);
         }}
         .other-m {{
             opacity: 0.35;
         }}
         .badge {{
-            background-color: var(--secondary-background-color, #e3f2fd);
+            background-color: rgba(26, 115, 232, 0.15);
             color: var(--text-color, inherit);
-            border: 1px solid var(--border-color, #90caf9);
+            border: 1px solid rgba(26, 115, 232, 0.4);
             padding: 2px 4px;
             border-radius: 4px;
             font-size: 11px;
