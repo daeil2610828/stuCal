@@ -484,51 +484,82 @@ with right_col:
             st.write("📋 **등록된 개인 일정 목록**")
             st.dataframe(st.session_state.personal_schedule, use_container_width=True, hide_index=True)
 
-    # --------------------------------------
+# --------------------------------------
     # TAB 2: 학습 일정 추가
     # --------------------------------------
     with tab2:
         st.subheader(TEXTS["ADD_STUDY"]["HEADER"])
-        with st.form("add_study_form"):
-            subject_name = st.text_input(TEXTS["ADD_STUDY"]["SUBJECT_LABEL"], placeholder=TEXTS["ADD_STUDY"]["SUBJECT_PLACEHOLDER"])
-            unit_type = st.selectbox(TEXTS["ADD_STUDY"]["RANGE_TYPE_LABEL"], options=["페이지", "강 (인강)", "문제 (개)"])
-            total_amount = st.number_input(TEXTS["ADD_STUDY"]["TOTAL_AMOUNT_LABEL"], min_value=1, value=100)
-            
-            st_col1, st_col2 = st.columns(2)
-            start_date = st_col1.date_input(TEXTS["ADD_STUDY"]["START_DATE_LABEL"], value=date.today())
-            exam_date = st_col2.date_input(TEXTS["ADD_STUDY"]["EXAM_DATE_LABEL"], value=date.today() + timedelta(days=14))
-            
-            if st.form_submit_button(TEXTS["ADD_STUDY"]["CREATE_BTN"], use_container_width=True):
-                total_days = (exam_date - start_date).days + 1
-                if total_days <= 0:
-                    st.error("시험 날짜는 시작일 이후여야 합니다.")
-                else:
-                    daily_target = math.ceil(total_amount / total_days)
-                    new_rows = []
-                    accumulated = 0
-                    
-                    for i in range(total_days):
-                        current_day = start_date + timedelta(days=i)
-                        p_start = accumulated + 1
-                        p_end = min(accumulated + daily_target, total_amount)
-                        
-                        range_str = f"{subject_name} {p_start}~{p_end}{unit_type}" if p_start <= total_amount else "완료"
-                        amount = max(0, p_end - p_start + 1) if p_start <= total_amount else 0
-                        
-                        new_rows.append({
-                            "날짜": current_day,
-                            "목표 범위": range_str,
-                            "목표량": amount,
-                            "실제 완료량": 0,
-                            "완료여부": False
-                        })
-                        accumulated = p_end
-                    
-                    new_df = pd.DataFrame(new_rows)
-                    st.session_state.schedule = new_df
-                    save_schedule_to_gsheets(new_df)
-                    st.success(TEXTS["ADD_STUDY"]["SUCCESS"])
-                    st.rerun()
+        
+        # 1. 학습 일정 종류 선택
+        schedule_type = st.selectbox(
+            "학습 일정 종류",
+            options=["정기고사", "수행평가", "기타"],
+            help="추가할 학습 일정의 종류를 선택하세요."
+        )
+        
+        st.divider()
+
+        # ----------------------------------
+        # [CASE 1] 정기고사
+        # ----------------------------------
+        if schedule_type == "정기고사":
+            with st.form("add_exam_form"):
+                st.markdown("#### 📝 정기고사 기본 설정")
+                
+                exam_name = st.text_input("시험명", placeholder="예: 1학기 중간고사, 2학기 기말고사")
+                
+                col1, col2 = st.columns(2)
+                exam_start_date = col1.date_input("시험 시작일", value=date.today())
+                exam_duration = col2.number_input("시험 기간(일)", min_value=1, max_value=14, value=3, help="시험이 며칠 동안 진행되는지 입력하세요.")
+                
+                st.divider()
+                st.markdown("#### 📚 과목별 세부 설정")
+                st.caption("※ 과목별 상세 범위 및 일정을 설정할 영역입니다.")
+                
+                # (추후 과목별 세부 입력 필드가 추가될 섹션)
+                
+                if st.form_submit_button("🚀 정기고사 일정 생성", use_container_width=True):
+                    exam_end_date = exam_start_date + timedelta(days=exam_duration - 1)
+                    st.success(f"'{exam_name}' 일정({exam_start_date} ~ {exam_end_date}, {exam_duration}일간)이 설정되었습니다!")
+
+        # ----------------------------------
+        # [CASE 2] 수행평가
+        # ----------------------------------
+        elif schedule_type == "수행평가":
+            with st.form("add_performance_form"):
+                st.markdown("#### 📋 수행평가 설정")
+                
+                eval_subject = st.text_input("과목", placeholder="예: 국어, 영어, 수학")
+                
+                col1, col2 = st.columns(2)
+                eval_date = col1.date_input("수행평가 날짜", value=date.today())
+                eval_period = col2.number_input("수행평가 교시", min_value=1, max_value=10, value=1)
+                
+                prep_days = st.number_input("D-Day 준비 기간(일)", min_value=1, max_value=30, value=3, help="수행평가를 며칠 전부터 준비할지 설정합니다.")
+                
+                range_note = st.text_area("범위 노트", placeholder="수행평가 범위, 준비물, 주의사항 등을 적어주세요.")
+                
+                if st.form_submit_button("➕ 수행평가 등록", use_container_width=True):
+                    st.success(f"[{eval_subject}] 수행평가가 등록되었습니다! (D-{prep_days} 준비 일정 적용)")
+
+        # ----------------------------------
+        # [CASE 3] 기타
+        # ----------------------------------
+        elif schedule_type == "기타":
+            with st.form("add_etc_study_form"):
+                st.markdown("#### 📌 기타 학습 일정 설정")
+                
+                etc_title = st.text_input("학습 제목", placeholder="예: 토익 문제집 풀기, 인강 완강")
+                etc_subject = st.text_input("과목/분야", placeholder="예: 영어, 자격증, 기타")
+                
+                col1, col2 = st.columns(2)
+                etc_start = col1.date_input("시작일", value=date.today())
+                etc_end = col2.date_input("목표 완료일", value=date.today() + timedelta(days=7))
+                
+                etc_memo = st.text_area("세부 메모", placeholder="학습 목표나 메모할 내용을 작성하세요.")
+                
+                if st.form_submit_button("➕ 기타 일정 등록", use_container_width=True):
+                    st.success(f"'{etc_title}' 학습 일정이 등록되었습니다!")
 
     # --------------------------------------
     # TAB 3: 일상 루틴 설정
