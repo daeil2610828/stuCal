@@ -65,52 +65,67 @@ def create_empty_personal_df():
     return pd.DataFrame(columns=PERSONAL_COLUMNS)
 
 # ==========================================
-# Google Sheets 연동 및 자동 저장 함수 (오류 수정)
+# Google Sheets 연동 (오류 완벽 해결 버전)
 # ==========================================
-@st.cache_resource
 def get_gsheet_client():
+    """토큰 만료 방지를 위해 캐시 없이 매번 신규 클라이언트 생성"""
     try:
-        credentials = Credentials.from_service_account_info(
-            st.secrets["gcp_service_account"],
-            scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-        )
-        return gspread.authorize(credentials)
-    except Exception:
+        if "gcp_service_account" in st.secrets:
+            credentials = Credentials.from_service_account_info(
+                st.secrets["gcp_service_account"],
+                scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+            )
+            return gspread.authorize(credentials)
+        return None
+    except Exception as e:
         return None
 
 def auto_sync_to_gsheets():
-    """개인 일정 및 학습 스케줄을 구글 시트로 자동 저장하는 함수"""
+    """개인 일정 및 학습 스케줄을 구글 시트로 자동 저장"""
+    client = get_gsheet_client()
+    if client is None:
+        return  # Secrets에 설정이 없으면 동작 스킵
+        
     try:
-        client = get_gsheet_client()
-        if client is None: 
-            return
+        spreadsheet_url = None
+        if "connections" in st.secrets and "gsheets" in st.secrets["connections"]:
+            spreadsheet_url = st.secrets["connections"]["gsheets"].get("spreadsheet")
+        elif "gsheet_url" in st.secrets:
+            spreadsheet_url = st.secrets.get("gsheet_url")
             
-        spreadsheet_url = st.secrets["connections"]["gsheets"]["spreadsheet"]
+        if not spreadsheet_url:
+            return
+
         doc = client.open_by_url(spreadsheet_url)
         
-        # 1. 학습 스케줄 저장 (sheet1)
+        # 1. 학습 스케줄 정제 및 저장
         sheet_study = doc.sheet1
         save_study_df = st.session_state.schedule.copy() if not st.session_state.schedule.empty else create_empty_study_df()
+        
+        # 데이터 타입 정제 (None -> 빈문자열, 날짜 -> str)
+        save_study_df = save_study_df.fillna("")
         save_study_df["날짜"] = save_study_df["날짜"].astype(str)
         
-        values_study = [save_study_df.columns.tolist()] + save_study_df.astype(str).values.tolist()
+        study_values = [save_study_df.columns.tolist()] + save_study_df.astype(str).values.tolist()
         sheet_study.clear()
-        sheet_study.update(range_name='A1', values=values_study)
+        sheet_study.update(study_values)
 
-        # 2. 개인 일정 저장 (PersonalSchedule 탭)
+        # 2. 개인 일정 정제 및 저장
         try:
             sheet_personal = doc.worksheet("PersonalSchedule")
         except Exception:
             sheet_personal = doc.add_worksheet(title="PersonalSchedule", rows="1000", cols="20")
             
         save_p_df = st.session_state.personal_schedule.copy() if not st.session_state.personal_schedule.empty else create_empty_personal_df()
+        save_p_df = save_p_df.fillna("")
         save_p_df["날짜"] = save_p_df["날짜"].astype(str)
         
-        values_p = [save_p_df.columns.tolist()] + save_p_df.astype(str).values.tolist()
+        personal_values = [save_p_df.columns.tolist()] + save_p_df.astype(str).values.tolist()
         sheet_personal.clear()
-        sheet_personal.update(range_name='A1', values=values_p)
+        sheet_personal.update(personal_values)
+        
     except Exception as e:
-        st.error(f"{TEXTS['MESSAGES']['GSHEET_SAVE_ERROR']}{e}")
+        st.toast(f"⚠️ 구글 시트 저장 중 오류: {e}", icon="⚠️")
 
 # ==========================================
 # 세션 상태 초기화
@@ -181,7 +196,7 @@ def remove_subject(index):
         st.session_state.exam_subjects.pop(index)
 
 # ==========================================
-# 직렬화 / 역직렬화 헬퍼 함수 (KeyError 방지)
+# 직렬화 / 역직렬화 헬퍼 함수
 # ==========================================
 def serialize_state():
     state_dict = {
