@@ -2,9 +2,9 @@ import streamlit as st
 import pandas as pd
 from datetime import date, datetime, timedelta
 import math
+import calendar
 import gspread
 from google.oauth2.service_account import Credentials
-from streamlit_calendar import calendar
 
 # 페이지 기본 설정
 st.set_page_config(page_title="스마트 시험 D-Day 플래너", layout="wide")
@@ -73,82 +73,105 @@ def save_schedule_to_gsheets(df):
 if "schedule" not in st.session_state:
     st.session_state.schedule = load_schedule_from_gsheets()
 
-if "current_view_date" not in st.session_state:
-    st.session_state.current_view_date = date.today().replace(day=1)
+if "selected_date" not in st.session_state:
+    st.session_state.selected_date = date.today()
 
-# --- 메인 레이아웃 (좌: 달력 / 우: 탭뷰) ---
+# --- 메인 레이아웃 (좌: 커스텀 달력 / 우: 탭뷰) ---
 left_col, right_col = st.columns([1, 1], gap="large")
 
 # ==========================================
-# [왼쪽 칼럼] 달력 및 날짜 이동 네비게이션
+# [왼쪽 칼럼] 커스텀 달력 및 날짜 이동 컨트롤
 # ==========================================
 with left_col:
     st.subheader("🗓️ 달력")
     
-    nav_col1, nav_col2, nav_col3, nav_col4 = st.columns([1, 3, 2, 1])
-    curr_dt = st.session_state.current_view_date
+    # 상단 컨트롤: 이전 달 / 통합 날짜 선택기 (키보드 직접 입력 가능) / 다음 달
+    nav_col1, nav_col2, nav_col3 = st.columns([1, 4, 1])
+    
+    selected_dt = st.session_state.selected_date
     
     with nav_col1:
-        if st.button("◀", key="prev_month"):
-            first_of_curr = curr_dt.replace(day=1)
-            prev_month_last = first_of_curr - timedelta(days=1)
-            st.session_state.current_view_date = prev_month_last.replace(day=1)
+        if st.button("◀", key="prev_month_btn", use_container_width=True):
+            # 이전 달의 1일로 이동
+            first_curr = selected_dt.replace(day=1)
+            prev_month_last = first_curr - timedelta(days=1)
+            st.session_state.selected_date = prev_month_last.replace(day=min(selected_dt.day, prev_month_last.day))
             st.rerun()
             
     with nav_col2:
-        formatted_date_str = curr_dt.strftime("%Y-%m ▾")
-        st.button(f"📅 {formatted_date_str}", key="date_picker_btn", use_container_width=True)
+        # 통합된 날짜 입력기 (키보드 입력 가능, 달력 아이콘 및 선택 지원)
+        picked_date = st.date_input(
+            "선택 날짜",
+            value=selected_dt,
+            label_visibility="collapsed",
+            key="main_date_picker"
+        )
+        if picked_date != selected_dt:
+            st.session_state.selected_date = picked_date
+            st.rerun()
 
     with nav_col3:
-        selected_ym = st.date_input(
-            "날짜 선택",
-            value=curr_dt,
-            label_visibility="collapsed",
-            key="selector_date"
-        )
-        if selected_ym.replace(day=1) != curr_dt:
-            st.session_state.current_view_date = selected_ym.replace(day=1)
+        if st.button("▶", key="next_month_btn", use_container_width=True):
+            # 다음 달로 이동
+            next_month = (selected_dt.replace(day=28) + timedelta(days=5)).replace(day=1)
+            st.session_state.selected_date = next_month.replace(day=min(selected_dt.day, 28))
             st.rerun()
 
-    with nav_col4:
-        if st.button("▶", key="next_month"):
-            next_month = (curr_dt.replace(day=28) + timedelta(days=5)).replace(day=1)
-            st.session_state.current_view_date = next_month
-            st.rerun()
-
-    # 달력 이벤트 생성
-    calendar_events = []
+    # --- 커스텀 grid 캘린더 생성 ---
+    year = selected_dt.year
+    month = selected_dt.month
+    
+    # 스케줄 데이터를 날짜별 매핑
+    schedule_dict = {}
     if st.session_state.schedule is not None and not st.session_state.schedule.empty:
         for _, row in st.session_state.schedule.iterrows():
-            is_done = row.get("완료여부", False)
-            color = "#28a745" if is_done else "#3174ad"
-            title = f"{row['목표 범위']} ({row['실제 완료량']}/{row['목표량']})"
-            
-            calendar_events.append({
-                "title": title,
-                "start": str(row["날짜"]),
-                "end": str(row["날짜"]),
-                "color": color,
-                "allDay": True
-            })
+            schedule_dict[row["날짜"]] = row
 
-    # Calendar 옵션 (높이 및 렌더링 끊김 방지 설정 적용)
-    calendar_options = {
-        "headerToolbar": False,
-        "initialDate": curr_dt.strftime("%Y-%m-%d"),
-        "initialView": "dayGridMonth",
-        "selectable": True,
-        "editable": False,
-        "height": "auto",
-        "contentHeight": "auto",
-        "expandRows": True
-    }
-    
-    calendar(
-        events=calendar_events,
-        options=calendar_options,
-        key=f"calendar_{curr_dt.strftime('%Y_%m')}"
-    )
+    # 요일 헤더
+    days_header = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+    hdr_cols = st.columns(7)
+    for idx, day_name in enumerate(days_header):
+        hdr_cols[idx].markdown(f"**<div style='text-align: center;'>{day_name}</div>**", unsafe_allow_html=True)
+
+    # 해당 월의 달력 그리드 계산 (일요일 시작)
+    cal = calendar.Calendar(firstweekday=6)
+    month_days = cal.monthdatescalendar(year, month)
+
+    for week in month_days:
+        week_cols = st.columns(7)
+        for idx, day_date in enumerate(week):
+            is_current_month = (day_date.month == month)
+            is_selected = (day_date == selected_dt)
+            
+            # 날짜에 해당하는 공부 데이터 확인
+            data = schedule_dict.get(day_date, None)
+            
+            # 텍스트 및 레이블 구성
+            day_num_str = str(day_date.day)
+            label = day_num_str
+            
+            if is_current_month and data is not None:
+                is_done = data.get("완료여부", False)
+                icon = "✅" if is_done else "📖"
+                label = f"{day_num_str}\n{icon} {data['목표 범위']}"
+
+            # 버튼 타입 (선택된 날짜인 경우 primary 강조)
+            btn_type = "primary" if is_selected else "secondary"
+            
+            # 이전/다음 달 날짜 연하게 표시 처리용 키
+            btn_key = f"cal_btn_{day_date.strftime('%Y_%m_%d')}"
+            
+            with week_cols[idx]:
+                # 날짜 버튼 클릭 시 해당 날짜로 선택되며 상단 입력창에도 즉시 연동
+                if st.button(
+                    label,
+                    key=btn_key,
+                    use_container_width=True,
+                    type=btn_type,
+                    disabled=not is_current_month # 다른 달 날짜 비활성화 (필요 시 활성화 가능)
+                ):
+                    st.session_state.selected_date = day_date
+                    st.rerun()
 
 # ==========================================
 # [오른쪽 칼럼] 탭뷰 (1, 2, 3)
